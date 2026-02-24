@@ -9,6 +9,26 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/main.css" />
   <link rel="stylesheet" href="css/baby.css" />
+  <!-- Register Service Worker for offline support (TASK-002) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch((err) => {
+          console.warn('[sw] Registration failed:', err);
+        });
+      });
+    }
+  </script>
+  <!-- Third-party libraries loaded from CDN and cached by the Service Worker.
+       crossorigin="anonymous" enables CORS mode so the SW can cache
+       readable (non-opaque) responses for reliable offline serving.
+       CDN origins: cdnjs.cloudflare.com, cdn.jsdelivr.net -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+          crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"
+          crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"
+          crossorigin="anonymous"></script>
 </head>
 <body class="baby-screen">
 

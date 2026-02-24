@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="#1a1a2e"/>
+
+  <!-- Baby face circle -->
+  <circle cx="220" cy="230" r="120" fill="none" stroke="#4db8e8" stroke-width="22"/>
+
+  <!-- Eyes -->
+  <circle cx="178" cy="205" r="18" fill="#4db8e8"/>
+  <circle cx="262" cy="205" r="18" fill="#4db8e8"/>
+
+  <!-- Smile -->
+  <path d="M 165 255 Q 220 298 275 255"
+        stroke="#4db8e8" stroke-width="20" fill="none" stroke-linecap="round"/>
+
+  <!-- Wi-Fi / signal waves (parent monitor side) -->
+  <path d="M 370 185 Q 406 220 370 255"
+        stroke="#4db8e8" stroke-width="18" fill="none"
+        stroke-linecap="round" opacity="0.7"/>
+  <path d="M 395 155 Q 445 220 395 285"
+        stroke="#4db8e8" stroke-width="18" fill="none"
+        stroke-linecap="round" opacity="0.5"/>
+  <path d="M 420 125 Q 484 220 420 315"
+        stroke="#4db8e8" stroke-width="18" fill="none"
+        stroke-linecap="round" opacity="0.3"/>
+
+  <!-- Camera dot (recording indicator) -->
+  <circle cx="220" cy="380" r="16" fill="#4db8e8"/>
+</svg>

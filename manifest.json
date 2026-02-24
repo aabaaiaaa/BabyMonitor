@@ -2,26 +2,26 @@
   "name": "Baby Monitor",
   "short_name": "Baby Monitor",
   "description": "Peer-to-peer baby monitor — no server required. Stream video and audio between devices over local Wi-Fi.",
-  "start_url": ".",
+  "start_url": "./",
   "display": "fullscreen",
   "orientation": "any",
   "background_color": "#1a1a2e",
   "theme_color": "#1a1a2e",
   "icons": [
     {
-      "src": "icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     },
     {
-      "src": "icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ],
   "categories": ["utilities"],
-  "scope": ".",
+  "scope": "./",
   "prefer_related_applications": false
 }

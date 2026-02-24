@@ -8,6 +8,16 @@
   <title>Baby Monitor</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/main.css" />
+  <!-- Register Service Worker for offline support (TASK-002) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch((err) => {
+          console.warn('[sw] Registration failed:', err);
+        });
+      });
+    }
+  </script>
 </head>
 <body class="home-screen">
 
