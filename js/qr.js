@@ -349,6 +349,15 @@ function scanFrames(videoEl, onFrame) {
  * @returns {Promise<string>} the decoded QR content
  */
 export async function scanSingle(videoEl, options = {}) {
+  // Test hook: if window.__TEST_SCAN_RESULT is pre-loaded, return it immediately
+  // without opening the camera.  This allows E2E tests to bypass QR scanning.
+  // The value is consumed (set to null) so subsequent calls behave normally.
+  if (typeof window !== 'undefined' && window.__TEST_SCAN_RESULT != null) {
+    const result = window.__TEST_SCAN_RESULT;
+    window.__TEST_SCAN_RESULT = null;
+    return result;
+  }
+
   const { onProgress } = options;
 
   if (typeof jsQR === 'undefined') {

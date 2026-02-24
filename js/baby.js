@@ -1068,6 +1068,8 @@ function startMonitor(conn) {
 
 /** Update the connection status indicator. */
 function updateConnectionStatus(connState) {
+  // E2E test hook (TASK-063): expose connection state for Playwright assertions.
+  window.__peerState = connState;
   if (!babyConnStatus) return;
   babyConnStatus.className = 'status-badge';
   if (connState === 'connected')    babyConnStatus.classList.add('connected');
@@ -1600,6 +1602,8 @@ function _stopPlayback() {
  * @param {object} msg
  */
 function handleDataMessage(msg) {
+  // E2E test hook (TASK-063): record the last received message for assertions.
+  window.__lastBabyMessage = msg;
   switch (msg.type) {
     case MSG.SET_MODE:
       startSoothingMode(msg.value);

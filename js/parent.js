@@ -741,6 +741,10 @@ function addMonitor(conn) {
 
   // Start noise visualiser (TASK-024)
   startNoiseVisualiser(entry);
+
+  // E2E test hooks (TASK-063): expose connection state and last connection for assertions.
+  window.__peerState = 'connected';
+  window.__testMonitorConn = conn;
 }
 
 /**
@@ -1587,6 +1591,8 @@ function handleDataMessage(deviceId, msg) {
       // Cache the baby's state for when the control panel is opened (TASK-025 / TASK-048).
       if (!entry) break;
       entry.babyState = msg.value;
+      // E2E test hook (TASK-063): expose the latest snapshot for Playwright assertions.
+      window.__lastStateSnapshot = msg.value;
       // If the control panel is currently open for this device, live-sync its controls.
       if (controlPanelDeviceId === deviceId) {
         _syncControlPanelState(msg.value);
