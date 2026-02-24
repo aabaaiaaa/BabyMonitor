@@ -10,6 +10,7 @@
  */
 
 import { lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS } from './storage.js';
+import { renderSafeSleepContent } from './safe-sleep.js';
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -129,33 +130,14 @@ btnAddParent?.addEventListener('click', () => {
 btnSafeSleep?.addEventListener('click', () => {
   homeScreen?.classList.add('hidden');
   safeSleepScreen?.classList.remove('hidden');
-  // Content injected by renderSafeSleepContent() — TASK-044
-  renderSafeSleepContent();
+  const inner = safeSleepScreen?.querySelector('.safe-sleep-screen__inner');
+  if (inner) renderSafeSleepContent(inner);
 });
 
 safeSleepBack?.addEventListener('click', () => {
   safeSleepScreen?.classList.add('hidden');
   homeScreen?.classList.remove('hidden');
 });
-
-/**
- * Placeholder for safe sleep content rendering (TASK-044).
- * Full content and formatting implemented in TASK-044.
- */
-function renderSafeSleepContent() {
-  const inner = document.querySelector('.safe-sleep-screen__inner');
-  if (!inner) return;
-
-  // Content will be fully populated in TASK-044
-  if (inner.querySelector('h2')) return; // Already rendered
-
-  inner.insertAdjacentHTML('beforeend', `
-    <h2>Safe Sleep Guide</h2>
-    <p><em>Full guidance content will be displayed here (TASK-044).</em></p>
-    <p>This screen provides NHS and Lullaby Trust safer sleep guidance for
-       babies under 12 months.</p>
-  `);
-}
 
 // ---------------------------------------------------------------------------
 // Settings screen

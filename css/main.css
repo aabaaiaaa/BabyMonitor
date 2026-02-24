@@ -619,6 +619,196 @@ textarea {
   margin: 0 auto;
 }
 
+/* Content article */
+.safe-sleep-content {
+  line-height: 1.7;
+}
+
+.safe-sleep-content__title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+}
+
+.safe-sleep-content__intro {
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-lg);
+  font-size: var(--font-size-sm);
+}
+
+/* Device placement notice — prominent warning box */
+.safe-sleep-notice {
+  background: #fff3cd;
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  padding: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.dark-mode .safe-sleep-notice {
+  background: rgba(255, 193, 7, 0.12);
+  border-left-color: var(--color-warning);
+}
+
+.safe-sleep-notice__heading {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  margin-bottom: var(--space-xs);
+  color: #856404;
+}
+
+.dark-mode .safe-sleep-notice__heading {
+  color: #ffe08a;
+}
+
+.safe-sleep-notice p {
+  font-size: var(--font-size-sm);
+  color: #664d03;
+  margin: 0;
+}
+
+.dark-mode .safe-sleep-notice p {
+  color: #f0d080;
+}
+
+/* Individual content sections */
+.safe-sleep-section {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.safe-sleep-section:last-of-type {
+  border-bottom: none;
+}
+
+.safe-sleep-section__heading {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.safe-sleep-section p {
+  margin-bottom: var(--space-sm);
+}
+
+.safe-sleep-section p:last-child {
+  margin-bottom: 0;
+}
+
+/* Lists */
+.safe-sleep-list {
+  margin: var(--space-sm) 0 var(--space-sm) var(--space-lg);
+  padding: 0;
+}
+
+.safe-sleep-list li {
+  margin-bottom: var(--space-xs);
+  padding-left: var(--space-xs);
+}
+
+.safe-sleep-list--numbered {
+  list-style-type: decimal;
+}
+
+/* Source attribution inline labels */
+.safe-sleep-source {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: var(--space-sm);
+  font-style: italic;
+}
+
+/* Acknowledgement block (onboarding) */
+.safe-sleep-ack {
+  margin: var(--space-xl) 0 var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--color-bg-surface);
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.safe-sleep-ack__label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  cursor: pointer;
+  margin-bottom: var(--space-sm);
+}
+
+.safe-sleep-ack__checkbox {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.safe-sleep-ack__text {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.safe-sleep-ack__hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-md);
+}
+
+.safe-sleep-ack__btn {
+  width: 100%;
+}
+
+/* Attribution footer */
+.safe-sleep-attribution {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.safe-sleep-attribution__heading {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-sm);
+}
+
+.safe-sleep-attribution__list {
+  list-style: none;
+  margin: 0 0 var(--space-md);
+  padding: 0;
+}
+
+.safe-sleep-attribution__list li {
+  margin-bottom: var(--space-xs);
+}
+
+.safe-sleep-attribution__link {
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  text-decoration: underline;
+  word-break: break-word;
+}
+
+.safe-sleep-attribution__link:hover,
+.safe-sleep-attribution__link:focus-visible {
+  opacity: 0.75;
+}
+
+.safe-sleep-attribution__note {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 /* --------------------------------------------------------------------------
    Settings screen (TASK-032)
    -------------------------------------------------------------------------- */

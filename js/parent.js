@@ -30,6 +30,7 @@ import {
   lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS,
   getDeviceProfile, saveDeviceProfile,
 } from './storage.js';
+import { renderSafeSleepContent } from './safe-sleep.js';
 import {
   initPeer, getPeer,
   babyCallParent, parentListenPeerJs,
@@ -859,9 +860,10 @@ btnAddMonitor?.addEventListener('click', () => {
 });
 
 btnSafeSleep?.addEventListener('click', () => {
-  // Show safe sleep screen (TASK-044)
   parentDashboard?.classList.add('hidden');
   safeSlotScreen?.classList.remove('hidden');
+  const inner = safeSlotScreen?.querySelector('.safe-sleep-screen__inner');
+  if (inner) renderSafeSleepContent(inner);
 });
 
 document.getElementById('safe-sleep-back')?.addEventListener('click', () => {
