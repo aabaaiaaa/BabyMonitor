@@ -1395,18 +1395,140 @@ function _startCandleEffect() {
   _animFrame = requestAnimationFrame(drawFrame);
 }
 
-/** Water effect stub (TASK-017). */
+/**
+ * Water light soothing effect (TASK-017).
+ *
+ * Renders a fullscreen animated water scene using layered 2-D canvas shapes —
+ * no per-pixel operations so it stays lightweight on mobile.
+ *
+ * Visual layers (back → front):
+ *   1. Deep-water background gradient (dark navy → mid teal)
+ *   2. Three wide sine-wave bands that undulate slowly
+ *   3. Caustic-light blobs — radial-gradient ellipses that orbit lazily
+ *   4. Fine surface-shimmer arcs for a light-on-water glint
+ *
+ * All animation is driven by a single time accumulator `t`.  24 fps cap keeps
+ * battery usage low.
+ */
 function _startWaterEffect() {
   if (!soothingCanvas) return;
   // Canvas already sized by _resizeCanvas() called in startSoothingMode().
   const ctx = soothingCanvas.getContext('2d');
-  // Placeholder: calm blue gradient fill — full animated water in TASK-017
-  const grad = ctx.createLinearGradient(0, 0, soothingCanvas.width, soothingCanvas.height);
-  grad.addColorStop(0, '#0d4f8e');
-  grad.addColorStop(1, '#4db8e8');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, soothingCanvas.width, soothingCanvas.height);
-  soothingCanvas.style.background = '';
+
+  // ── Timing ───────────────────────────────────────────────────────────────
+  const TARGET_FPS = 24;
+  const FRAME_MS   = 1000 / TARGET_FPS;
+  let lastMs = 0;
+  let t = 0;
+
+  // ── Caustic blob parameters (pre-seeded, not regenerated per frame) ───────
+  const BLOB_COUNT = 6;
+  const blobs = Array.from({ length: BLOB_COUNT }, (_, i) => ({
+    baseX:  (i + 0.5) / BLOB_COUNT,           // horizontal anchor (0–1)
+    baseY:  0.18 + (i % 3) * 0.28,            // vertical anchor rows
+    rx:     0.09 + (i * 0.037 % 0.09),        // orbit X radius (fraction of W)
+    ry:     0.04 + (i * 0.031 % 0.06),        // orbit Y radius (fraction of H)
+    phaseX: i * 1.3,
+    phaseY: i * 2.1 + 0.7,
+    speed:  0.30 + (i * 0.13 % 0.25),
+    size:   0.11 + (i * 0.041 % 0.10),        // blob radius (fraction of min(W,H))
+    alpha:  0.07 + (i * 0.023 % 0.06),        // base opacity
+  }));
+
+  // ── Surface shimmer line parameters ──────────────────────────────────────
+  const SHIMMER_COUNT = 8;
+  const shimmers = Array.from({ length: SHIMMER_COUNT }, (_, i) => ({
+    yFrac:  0.05 + i / SHIMMER_COUNT * 0.88,  // vertical position (fraction of H)
+    phase:  i * 0.97,
+    speed:  0.9 + (i * 0.17 % 0.80),
+    amp:    0.05 + (i * 0.029 % 0.04),        // wave amplitude (fraction of H)
+    length: 0.14 + (i * 0.037 % 0.20),        // arc half-length (fraction of W)
+    alpha:  0.04 + (i * 0.011 % 0.04),
+  }));
+
+  // ── Wave band definitions ─────────────────────────────────────────────────
+  const waveDefs = [
+    { yBase: 0.33, amp: 0.055, freq: 1.7, phase: 0.0, speed: 0.70, color: 'rgba(29,120,180,0.18)' },
+    { yBase: 0.52, amp: 0.045, freq: 2.3, phase: 1.2, speed: 0.50, color: 'rgba(40,155,185,0.15)' },
+    { yBase: 0.70, amp: 0.035, freq: 3.1, phase: 2.4, speed: 0.90, color: 'rgba(75,185,205,0.12)' },
+  ];
+
+  // ── Per-frame render ──────────────────────────────────────────────────────
+  function drawFrame(timestamp) {
+    _animFrame = requestAnimationFrame(drawFrame);
+    if (timestamp - lastMs < FRAME_MS) return;
+    lastMs = timestamp;
+
+    const W = soothingCanvas.width;
+    const H = soothingCanvas.height;
+    t += 0.018; // slow, calm increment
+
+    // Layer 1 — deep-water background gradient
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0,    '#06203a'); // deep navy
+    bg.addColorStop(0.45, '#0a3d6b'); // mid blue
+    bg.addColorStop(0.75, '#1a6b8a'); // teal
+    bg.addColorStop(1,    '#25899e'); // lighter teal
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Layer 2 — sine-wave bands
+    for (const w of waveDefs) {
+      const yBase = w.yBase * H;
+      const amp   = w.amp   * H;
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += 4) {
+        const xFrac = x / W;
+        const y = yBase
+          + amp * Math.sin(xFrac * Math.PI * 2 * w.freq + t * w.speed + w.phase)
+          + amp * 0.4 * Math.sin(xFrac * Math.PI * 2 * w.freq * 0.63 + t * w.speed * 1.31 + w.phase * 1.7);
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      ctx.fillStyle = w.color;
+      ctx.fill();
+    }
+
+    // Layer 3 — caustic-light blobs
+    for (const b of blobs) {
+      const cx    = (b.baseX + b.rx * Math.sin(t * b.speed         + b.phaseX)) * W;
+      const cy    = (b.baseY + b.ry * Math.cos(t * b.speed * 0.71  + b.phaseY)) * H;
+      const r     = b.size * Math.min(W, H);
+      const alpha = b.alpha * (0.8 + 0.2 * Math.sin(t * 0.8 + b.phaseX));
+
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0,   `rgba(160,230,245,${alpha.toFixed(3)})`);
+      grad.addColorStop(0.4, `rgba(80,185,220,${(alpha * 0.6).toFixed(3)})`);
+      grad.addColorStop(1,   'rgba(20,80,140,0)');
+
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r, r * 0.55, Math.sin(t * 0.3 + b.phaseX) * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+
+    // Layer 4 — surface shimmer highlights
+    ctx.save();
+    for (const s of shimmers) {
+      const y     = s.yFrac * H + s.amp * H * Math.sin(t * s.speed + s.phase);
+      const xMid  = (0.15 + 0.70 * ((Math.sin(t * s.speed * 0.53 + s.phase) + 1) * 0.5)) * W;
+      const hLen  = s.length * W * 0.5;
+      const alpha = s.alpha * (0.6 + 0.4 * Math.abs(Math.sin(t * s.speed * 1.3 + s.phase)));
+      const dip   = s.amp * H * 0.5 * Math.sin(t * s.speed * 2 + s.phase);
+
+      ctx.beginPath();
+      ctx.moveTo(xMid - hLen, y);
+      ctx.quadraticCurveTo(xMid, y + dip, xMid + hLen, y);
+      ctx.strokeStyle = `rgba(190,240,250,${alpha.toFixed(3)})`;
+      ctx.lineWidth   = 1.2;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  _animFrame = requestAnimationFrame(drawFrame);
 }
 
 /** Stars effect stub (TASK-018). */

@@ -124,7 +124,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Implement a fullscreen canvas-based candle flicker animation. Use randomised flame shapes rendered with orange/yellow/red gradients. Add subtle, slow brightness variation to simulate natural candlelight. The animation should be computationally lightweight — use `requestAnimationFrame` with a low update rate (e.g. 24 fps) and simple geometry rather than heavy shaders. The warm, dimly lit output should be suitable for a darkened baby room.
 
 ### TASK-017: Implement water light soothing effect
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-015
 - **Description**: Implement a fullscreen canvas-based animated water/ripple light effect. Use soft blue and teal tones with gentle horizontal wave patterns or caustic-light ripples. Animate with slow sinusoidal movement. Keep the rendering lightweight — avoid per-pixel operations; use layered semi-transparent shapes or pre-computed lookup tables. The output should feel calm and soothing.
