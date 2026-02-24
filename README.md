@@ -84,6 +84,49 @@ npx serve .
 Then navigate to the served URL in Chrome on both devices and follow the
 on-screen pairing instructions.
 
+## Advanced connection settings
+
+Both options below are entirely optional. The app works without any configuration
+using PeerJS defaults (public cloud signalling server + Google STUN).
+
+### TURN server
+
+In most home Wi-Fi networks the default STUN-based ICE negotiation works fine.
+In strict corporate / enterprise networks, or in double-NAT environments where
+STUN hole-punching cannot establish a direct path, a **TURN relay server** is
+needed.
+
+To configure a TURN server, open **Settings** (from the home screen or the parent
+dashboard) and expand the **TURN Server** panel:
+
+| Field | Example | Notes |
+|---|---|---|
+| TURN server URL | `turn:relay.example.com:3478` | Required; use `turns:` for TLS |
+| Username | `alice` | Optional — only needed if your TURN server requires authentication |
+| Credential | `secret` | Optional — the shared secret / password |
+
+The TURN details are stored in `localStorage` and are passed to:
+- The `iceServers` option of the PeerJS `Peer` constructor (Quick Pair path)
+- The `RTCPeerConnection` configuration used in the Offline QR pairing path
+
+Leave the field blank to fall back to the default STUN-only configuration.
+
+### Self-hosted PeerJS server
+
+By default, Quick Pair uses the [public PeerJS cloud signalling server](https://peerjs.com/).
+If you prefer to run your own, configure its address under **Settings → Custom PeerJS Server**:
+
+| Field | Default | Notes |
+|---|---|---|
+| Host | *(PeerJS cloud)* | Hostname of your server, e.g. `peerjs.example.com` |
+| Port | `9000` | TCP port your server listens on |
+| Path | `/` | Mount path, e.g. `/peerjs` |
+| Use HTTPS / WSS | ✓ | Disable only for local development over HTTP |
+
+Changes take effect on the next connection attempt (i.e. after the pairing flow is
+restarted). Self-hosted PeerJS server setup is outside the scope of this app —
+refer to the [peerjs-server](https://github.com/peers/peerjs-server) documentation.
+
 ## Architecture
 
 - **`index.html`** — Mode selection (baby device / parent device)

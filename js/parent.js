@@ -1870,23 +1870,55 @@ document.getElementById('settings-back')?.addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Settings screen — speak-through mode (TASK-012)
+// Settings screen — speak-through mode (TASK-012) + advanced connection (TASK-008)
 // ---------------------------------------------------------------------------
 
 /**
- * Sync the speak mode radio buttons to the current settings value.
+ * Sync the settings screen form fields with current stored values.
  * Called each time the settings screen is opened.
  */
 function _syncSettingsScreen() {
+  // Speak mode radios (TASK-012)
   const pttRadio    = document.getElementById('speak-mode-ptt');
   const toggleRadio = document.getElementById('speak-mode-toggle');
-  if (!pttRadio || !toggleRadio) return;
-  if (settings.speakMode === 'toggle') {
-    toggleRadio.checked = true;
-    pttRadio.checked    = false;
-  } else {
-    pttRadio.checked    = true;
-    toggleRadio.checked = false;
+  if (pttRadio && toggleRadio) {
+    if (settings.speakMode === 'toggle') {
+      toggleRadio.checked = true;
+      pttRadio.checked    = false;
+    } else {
+      pttRadio.checked    = true;
+      toggleRadio.checked = false;
+    }
+  }
+
+  // TURN server fields (TASK-008)
+  const turnConfig = lsGet(SETTING_KEYS.TURN_CONFIG, null);
+  const turnUrlEl       = document.getElementById('turn-url');
+  const turnUsernameEl  = document.getElementById('turn-username');
+  const turnCredentialEl = document.getElementById('turn-credential');
+  if (turnUrlEl)        turnUrlEl.value        = turnConfig?.urls       ?? '';
+  if (turnUsernameEl)   turnUsernameEl.value   = turnConfig?.username   ?? '';
+  if (turnCredentialEl) turnCredentialEl.value = turnConfig?.credential ?? '';
+  const turnStatusEl = document.getElementById('turn-status');
+  if (turnStatusEl) {
+    turnStatusEl.textContent = turnConfig?.urls ? 'TURN server configured.' : '';
+    turnStatusEl.className   = turnConfig?.urls ? 'settings-status settings-status--success' : 'settings-status';
+  }
+
+  // Custom PeerJS server fields (TASK-008)
+  const peerjsConfig = lsGet(SETTING_KEYS.PEERJS_SERVER, null);
+  const peerjsHostEl   = document.getElementById('peerjs-host');
+  const peerjsPortEl   = document.getElementById('peerjs-port');
+  const peerjsPathEl   = document.getElementById('peerjs-path');
+  const peerjsSecureEl = document.getElementById('peerjs-secure');
+  if (peerjsHostEl)   peerjsHostEl.value     = peerjsConfig?.host ?? '';
+  if (peerjsPortEl)   peerjsPortEl.value     = peerjsConfig?.port != null ? String(peerjsConfig.port) : '';
+  if (peerjsPathEl)   peerjsPathEl.value     = peerjsConfig?.path ?? '';
+  if (peerjsSecureEl) peerjsSecureEl.checked = peerjsConfig ? (peerjsConfig.secure !== false) : true;
+  const peerjsStatusEl = document.getElementById('peerjs-status');
+  if (peerjsStatusEl) {
+    peerjsStatusEl.textContent = peerjsConfig?.host ? 'Custom PeerJS server configured.' : '';
+    peerjsStatusEl.className   = peerjsConfig?.host ? 'settings-status settings-status--success' : 'settings-status';
   }
 }
 
@@ -1901,6 +1933,107 @@ document.getElementById('speak-mode-toggle')?.addEventListener('change', () => {
   settings.speakMode = 'toggle';
   saveSetting(SETTING_KEYS.SPEAK_MODE, 'toggle');
   updateSpeakBtnLabel();
+});
+
+// Wire up TURN server save / clear buttons (TASK-008)
+document.getElementById('btn-save-turn')?.addEventListener('click', () => {
+  const url        = document.getElementById('turn-url')?.value.trim()        ?? '';
+  const username   = document.getElementById('turn-username')?.value.trim()   ?? '';
+  const credential = document.getElementById('turn-credential')?.value.trim() ?? '';
+  const statusEl   = document.getElementById('turn-status');
+
+  if (!url) {
+    if (statusEl) {
+      statusEl.textContent = 'Please enter a TURN server URL.';
+      statusEl.className   = 'settings-status settings-status--error';
+    }
+    return;
+  }
+
+  const config = { urls: url };
+  if (username)   config.username   = username;
+  if (credential) config.credential = credential;
+
+  saveSetting(SETTING_KEYS.TURN_CONFIG, config);
+  settings = getSettings(); // refresh in-memory settings
+
+  if (statusEl) {
+    statusEl.textContent = 'TURN server saved. Takes effect on the next connection.';
+    statusEl.className   = 'settings-status settings-status--success';
+  }
+});
+
+document.getElementById('btn-clear-turn')?.addEventListener('click', () => {
+  saveSetting(SETTING_KEYS.TURN_CONFIG, null);
+  settings = getSettings();
+
+  const turnUrlEl       = document.getElementById('turn-url');
+  const turnUsernameEl  = document.getElementById('turn-username');
+  const turnCredentialEl = document.getElementById('turn-credential');
+  if (turnUrlEl)        turnUrlEl.value        = '';
+  if (turnUsernameEl)   turnUsernameEl.value   = '';
+  if (turnCredentialEl) turnCredentialEl.value = '';
+
+  const statusEl = document.getElementById('turn-status');
+  if (statusEl) {
+    statusEl.textContent = 'TURN server cleared.';
+    statusEl.className   = 'settings-status';
+  }
+});
+
+// Wire up custom PeerJS server save / clear buttons (TASK-008)
+document.getElementById('btn-save-peerjs')?.addEventListener('click', () => {
+  const host     = document.getElementById('peerjs-host')?.value.trim()  ?? '';
+  const portRaw  = document.getElementById('peerjs-port')?.value.trim()  ?? '';
+  const path     = document.getElementById('peerjs-path')?.value.trim()  ?? '/';
+  const secure   = document.getElementById('peerjs-secure')?.checked     ?? true;
+  const statusEl = document.getElementById('peerjs-status');
+
+  if (!host) {
+    if (statusEl) {
+      statusEl.textContent = 'Please enter a PeerJS server host.';
+      statusEl.className   = 'settings-status settings-status--error';
+    }
+    return;
+  }
+
+  const port = portRaw ? parseInt(portRaw, 10) : 9000;
+  if (isNaN(port) || port < 1 || port > 65535) {
+    if (statusEl) {
+      statusEl.textContent = 'Port must be a number between 1 and 65535.';
+      statusEl.className   = 'settings-status settings-status--error';
+    }
+    return;
+  }
+
+  const config = { host, port, path: path || '/', secure };
+  saveSetting(SETTING_KEYS.PEERJS_SERVER, config);
+  settings = getSettings();
+
+  if (statusEl) {
+    statusEl.textContent = 'PeerJS server saved. Takes effect on the next connection.';
+    statusEl.className   = 'settings-status settings-status--success';
+  }
+});
+
+document.getElementById('btn-clear-peerjs')?.addEventListener('click', () => {
+  saveSetting(SETTING_KEYS.PEERJS_SERVER, null);
+  settings = getSettings();
+
+  const peerjsHostEl   = document.getElementById('peerjs-host');
+  const peerjsPortEl   = document.getElementById('peerjs-port');
+  const peerjsPathEl   = document.getElementById('peerjs-path');
+  const peerjsSecureEl = document.getElementById('peerjs-secure');
+  if (peerjsHostEl)   peerjsHostEl.value     = '';
+  if (peerjsPortEl)   peerjsPortEl.value     = '';
+  if (peerjsPathEl)   peerjsPathEl.value     = '';
+  if (peerjsSecureEl) peerjsSecureEl.checked = true;
+
+  const statusEl = document.getElementById('peerjs-status');
+  if (statusEl) {
+    statusEl.textContent = 'Custom PeerJS server cleared. Using public PeerJS server.';
+    statusEl.className   = 'settings-status';
+  }
 });
 
 // Initialise speak button label on load (TASK-012)

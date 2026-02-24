@@ -116,17 +116,151 @@ safeSleepBack?.addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Settings screen
+// Settings screen (TASK-032, TASK-008)
 // ---------------------------------------------------------------------------
+
+/**
+ * Populate the home settings screen form fields from localStorage.
+ * Called each time the settings screen is opened.
+ */
+function _syncHomeSettings() {
+  // TURN server fields
+  const turnConfig = lsGet(SETTING_KEYS.TURN_CONFIG, null);
+  const turnUrlEl        = document.getElementById('home-turn-url');
+  const turnUsernameEl   = document.getElementById('home-turn-username');
+  const turnCredentialEl = document.getElementById('home-turn-credential');
+  if (turnUrlEl)        turnUrlEl.value        = turnConfig?.urls       ?? '';
+  if (turnUsernameEl)   turnUsernameEl.value   = turnConfig?.username   ?? '';
+  if (turnCredentialEl) turnCredentialEl.value = turnConfig?.credential ?? '';
+  const turnStatusEl = document.getElementById('home-turn-status');
+  if (turnStatusEl) {
+    turnStatusEl.textContent = turnConfig?.urls ? 'TURN server configured.' : '';
+    turnStatusEl.className   = turnConfig?.urls ? 'settings-status settings-status--success' : 'settings-status';
+  }
+
+  // Custom PeerJS server fields
+  const peerjsConfig = lsGet(SETTING_KEYS.PEERJS_SERVER, null);
+  const peerjsHostEl   = document.getElementById('home-peerjs-host');
+  const peerjsPortEl   = document.getElementById('home-peerjs-port');
+  const peerjsPathEl   = document.getElementById('home-peerjs-path');
+  const peerjsSecureEl = document.getElementById('home-peerjs-secure');
+  if (peerjsHostEl)   peerjsHostEl.value     = peerjsConfig?.host ?? '';
+  if (peerjsPortEl)   peerjsPortEl.value     = peerjsConfig?.port != null ? String(peerjsConfig.port) : '';
+  if (peerjsPathEl)   peerjsPathEl.value     = peerjsConfig?.path ?? '';
+  if (peerjsSecureEl) peerjsSecureEl.checked = peerjsConfig ? (peerjsConfig.secure !== false) : true;
+  const peerjsStatusEl = document.getElementById('home-peerjs-status');
+  if (peerjsStatusEl) {
+    peerjsStatusEl.textContent = peerjsConfig?.host ? 'Custom PeerJS server configured.' : '';
+    peerjsStatusEl.className   = peerjsConfig?.host ? 'settings-status settings-status--success' : 'settings-status';
+  }
+}
 
 btnSettings?.addEventListener('click', () => {
   homeScreen?.classList.add('hidden');
   settingsScreen?.classList.remove('hidden');
+  _syncHomeSettings();
 });
 
 settingsBack?.addEventListener('click', () => {
   settingsScreen?.classList.add('hidden');
   homeScreen?.classList.remove('hidden');
+});
+
+// TURN server save / clear (TASK-008)
+document.getElementById('home-btn-save-turn')?.addEventListener('click', () => {
+  const url        = document.getElementById('home-turn-url')?.value.trim()        ?? '';
+  const username   = document.getElementById('home-turn-username')?.value.trim()   ?? '';
+  const credential = document.getElementById('home-turn-credential')?.value.trim() ?? '';
+  const statusEl   = document.getElementById('home-turn-status');
+
+  if (!url) {
+    if (statusEl) {
+      statusEl.textContent = 'Please enter a TURN server URL.';
+      statusEl.className   = 'settings-status settings-status--error';
+    }
+    return;
+  }
+
+  const config = { urls: url };
+  if (username)   config.username   = username;
+  if (credential) config.credential = credential;
+
+  lsSet(SETTING_KEYS.TURN_CONFIG, config);
+
+  if (statusEl) {
+    statusEl.textContent = 'TURN server saved. Takes effect on the next connection.';
+    statusEl.className   = 'settings-status settings-status--success';
+  }
+});
+
+document.getElementById('home-btn-clear-turn')?.addEventListener('click', () => {
+  lsSet(SETTING_KEYS.TURN_CONFIG, null);
+
+  const turnUrlEl        = document.getElementById('home-turn-url');
+  const turnUsernameEl   = document.getElementById('home-turn-username');
+  const turnCredentialEl = document.getElementById('home-turn-credential');
+  if (turnUrlEl)        turnUrlEl.value        = '';
+  if (turnUsernameEl)   turnUsernameEl.value   = '';
+  if (turnCredentialEl) turnCredentialEl.value = '';
+
+  const statusEl = document.getElementById('home-turn-status');
+  if (statusEl) {
+    statusEl.textContent = 'TURN server cleared.';
+    statusEl.className   = 'settings-status';
+  }
+});
+
+// Custom PeerJS server save / clear (TASK-008)
+document.getElementById('home-btn-save-peerjs')?.addEventListener('click', () => {
+  const host     = document.getElementById('home-peerjs-host')?.value.trim()  ?? '';
+  const portRaw  = document.getElementById('home-peerjs-port')?.value.trim()  ?? '';
+  const path     = document.getElementById('home-peerjs-path')?.value.trim()  ?? '/';
+  const secure   = document.getElementById('home-peerjs-secure')?.checked     ?? true;
+  const statusEl = document.getElementById('home-peerjs-status');
+
+  if (!host) {
+    if (statusEl) {
+      statusEl.textContent = 'Please enter a PeerJS server host.';
+      statusEl.className   = 'settings-status settings-status--error';
+    }
+    return;
+  }
+
+  const port = portRaw ? parseInt(portRaw, 10) : 9000;
+  if (isNaN(port) || port < 1 || port > 65535) {
+    if (statusEl) {
+      statusEl.textContent = 'Port must be a number between 1 and 65535.';
+      statusEl.className   = 'settings-status settings-status--error';
+    }
+    return;
+  }
+
+  const config = { host, port, path: path || '/', secure };
+  lsSet(SETTING_KEYS.PEERJS_SERVER, config);
+
+  if (statusEl) {
+    statusEl.textContent = 'PeerJS server saved. Takes effect on the next connection.';
+    statusEl.className   = 'settings-status settings-status--success';
+  }
+});
+
+document.getElementById('home-btn-clear-peerjs')?.addEventListener('click', () => {
+  lsSet(SETTING_KEYS.PEERJS_SERVER, null);
+
+  const peerjsHostEl   = document.getElementById('home-peerjs-host');
+  const peerjsPortEl   = document.getElementById('home-peerjs-port');
+  const peerjsPathEl   = document.getElementById('home-peerjs-path');
+  const peerjsSecureEl = document.getElementById('home-peerjs-secure');
+  if (peerjsHostEl)   peerjsHostEl.value     = '';
+  if (peerjsPortEl)   peerjsPortEl.value     = '';
+  if (peerjsPathEl)   peerjsPathEl.value     = '';
+  if (peerjsSecureEl) peerjsSecureEl.checked = true;
+
+  const statusEl = document.getElementById('home-peerjs-status');
+  if (statusEl) {
+    statusEl.textContent = 'Custom PeerJS server cleared. Using public PeerJS server.';
+    statusEl.className   = 'settings-status';
+  }
 });
 
 // ---------------------------------------------------------------------------

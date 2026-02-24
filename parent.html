@@ -400,6 +400,73 @@
           </label>
         </div>
       </section>
+
+      <!-- TURN server configuration (TASK-008) -->
+      <section class="settings-group" aria-labelledby="turn-server-label">
+        <h3 id="turn-server-label">TURN Server (optional)</h3>
+        <p class="settings-group__desc">
+          In strict NAT or corporate network environments where the default STUN-based
+          connection fails, a TURN relay server lets the app connect via a relay.
+          Leave blank to use the default configuration (STUN only).
+        </p>
+        <div class="settings-field">
+          <label class="settings-field__label" for="turn-url">TURN server URL</label>
+          <input type="text" id="turn-url" class="settings-field__input"
+                 placeholder="turn:your-server.example.com:3478"
+                 autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label" for="turn-username">Username (optional)</label>
+          <input type="text" id="turn-username" class="settings-field__input"
+                 placeholder="username" autocomplete="off" />
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label" for="turn-credential">Credential (optional)</label>
+          <input type="password" id="turn-credential" class="settings-field__input"
+                 placeholder="password" autocomplete="off" />
+        </div>
+        <div class="settings-actions">
+          <button id="btn-save-turn" class="action-btn">Save TURN Server</button>
+          <button id="btn-clear-turn" class="action-btn action-btn--secondary">Clear</button>
+        </div>
+        <p class="settings-status" id="turn-status" aria-live="polite"></p>
+      </section>
+
+      <!-- Custom PeerJS server configuration (TASK-008) -->
+      <section class="settings-group" aria-labelledby="peerjs-server-label">
+        <h3 id="peerjs-server-label">Custom PeerJS Server (optional)</h3>
+        <p class="settings-group__desc">
+          By default, Quick Pair uses the public PeerJS cloud signalling server.
+          Configure a self-hosted PeerJS server here if you prefer not to rely on
+          the public server. Changes take effect on the next connection attempt.
+        </p>
+        <div class="settings-field">
+          <label class="settings-field__label" for="peerjs-host">Host</label>
+          <input type="text" id="peerjs-host" class="settings-field__input"
+                 placeholder="your-peerjs-server.example.com"
+                 autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label" for="peerjs-port">Port</label>
+          <input type="number" id="peerjs-port" class="settings-field__input"
+                 min="1" max="65535" placeholder="9000" />
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label" for="peerjs-path">Path</label>
+          <input type="text" id="peerjs-path" class="settings-field__input"
+                 placeholder="/" autocomplete="off" spellcheck="false" />
+        </div>
+        <label class="toggle-row">
+          <span>Use HTTPS / WSS (secure)</span>
+          <input type="checkbox" id="peerjs-secure" role="switch" checked />
+        </label>
+        <div class="settings-actions">
+          <button id="btn-save-peerjs" class="action-btn">Save PeerJS Server</button>
+          <button id="btn-clear-peerjs" class="action-btn action-btn--secondary">Clear</button>
+        </div>
+        <p class="settings-status" id="peerjs-status" aria-live="polite"></p>
+      </section>
+
     </div>
   </section>
 

@@ -70,7 +70,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
   Both paths must call a shared `onConnectionReady(dataChannel, mediaStream)` callback so all subsequent tasks (TASK-009, TASK-010, TASK-011, etc.) work identically regardless of which path established the connection.
 
 ### TASK-008: Implement TURN server configuration for strict NAT environments
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-007, TASK-060
 - **Description**: The PeerJS primary connection method already handles cross-network (internet) connectivity by default using the PeerJS cloud signaling server and STUN. However, in strict NAT or enterprise network environments, STUN alone may not be sufficient and a TURN relay server is needed. Add a TURN server settings panel (in the advanced section of TASK-032) allowing the user to enter a TURN server URL and optional credentials. When configured, pass these TURN details to both the PeerJS `Peer` constructor's `config.iceServers` option and the raw `RTCPeerConnection` configuration used in the offline QR fallback path. Also add an option to configure a self-hosted PeerJS server URL (host + port + path) for users who prefer not to rely on the public PeerJS cloud server. Both options are optional — the app works without them using PeerJS defaults. Document both options in the README (TASK-035).
