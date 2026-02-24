@@ -1645,6 +1645,17 @@ function handleDataMessage(deviceId, msg) {
       if (controlPanelDeviceId === deviceId) {
         _syncControlPanelState(msg.value);
       }
+      // TASK-048: if the snapshot carries battery state, update the panel battery
+      // indicator so the parent always sees battery info on first connect and
+      // after reconnection, before the next dedicated BATTERY_LEVEL message arrives.
+      if (msg.value?.batteryLevel != null) {
+        const { batteryLevel: level, batteryCharging: charging } = msg.value;
+        const batteryEl = entry.panelEl?.querySelector('.panel-battery');
+        if (batteryEl) {
+          batteryEl.textContent = `${level}%${charging ? '⚡' : ''}`;
+          batteryEl.title = `Battery: ${level}%${charging ? ' (charging)' : ''}`;
+        }
+      }
       break;
     }
 

@@ -113,6 +113,21 @@ let wakeLock = null;
  */
 let _batteryAlertSent = false;
 
+/**
+ * Last known battery level (0–100), or null before the Battery API has been
+ * read.  Updated by startBatteryMonitoring() → broadcast() and included in
+ * every STATE_SNAPSHOT so the parent always has fresh battery info (TASK-048).
+ * @type {number|null}
+ */
+let _batteryLevel = null;
+
+/**
+ * Last known battery charging state, or null before the Battery API has been
+ * read.  Updated alongside _batteryLevel (TASK-048).
+ * @type {boolean|null}
+ */
+let _batteryCharging = null;
+
 // ---------------------------------------------------------------------------
 // File transfer state (TASK-013)
 // ---------------------------------------------------------------------------
@@ -2011,6 +2026,11 @@ async function startBatteryMonitoring() {
     function broadcast() {
       const level   = Math.round(battery.level * 100);
       const charging = battery.charging;
+
+      // TASK-048: cache battery state so sendStateSnapshot() can include it.
+      _batteryLevel   = level;
+      _batteryCharging = charging;
+
       if (babyBattery) {
         babyBattery.textContent = `${level}%${charging ? ' ⚡' : ''}`;
         babyBattery.setAttribute('aria-label', `Battery ${level}%${charging ? ', charging' : ''}`);
@@ -2018,6 +2038,10 @@ async function startBatteryMonitoring() {
       // Send to parent if connected
       if (activeConnection?.dataChannel) {
         sendMessage(activeConnection.dataChannel, MSG.BATTERY_LEVEL, { level, charging });
+        // TASK-048: also push a full state snapshot so the parent control panel
+        // reflects the latest battery state (e.g. on initial read after connect,
+        // or when charging state changes).
+        sendStateSnapshot();
       }
       // Local low-battery warning
       if (level < 20 && !charging) {
@@ -2059,16 +2083,18 @@ function sendStateSnapshot() {
   if (!activeConnection?.dataChannel) return;
   sendMessage(activeConnection.dataChannel, MSG.STATE_SNAPSHOT, {
     deviceId,
-    soothingMode:  state.soothingMode,
-    currentTrack:  state.currentTrack,
-    musicVolume:   state.musicVolume,
-    fadeRemaining: state.fadeRemaining,
-    fadeDuration:  state.fadeDuration,  // TASK-014: original timer duration
-    cameraFacing:  state.cameraFacing,
-    audioOnly:     state.audioOnly,
-    quality:       state.quality,
-    screenDim:     state.screenDim,    // TASK-028
-    videoPaused:   state.videoPaused,  // TASK-028
+    soothingMode:    state.soothingMode,
+    currentTrack:    state.currentTrack,
+    musicVolume:     state.musicVolume,
+    fadeRemaining:   state.fadeRemaining,
+    fadeDuration:    state.fadeDuration,  // TASK-014: original timer duration
+    cameraFacing:    state.cameraFacing,
+    audioOnly:       state.audioOnly,
+    quality:         state.quality,
+    screenDim:       state.screenDim,     // TASK-028
+    videoPaused:     state.videoPaused,   // TASK-028
+    batteryLevel:    _batteryLevel,       // TASK-048: null until Battery API resolves
+    batteryCharging: _batteryCharging,    // TASK-048
   });
 }
 
