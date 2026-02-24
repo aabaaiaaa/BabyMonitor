@@ -1531,22 +1531,164 @@ function _startWaterEffect() {
   _animFrame = requestAnimationFrame(drawFrame);
 }
 
-/** Stars effect stub (TASK-018). */
+/**
+ * Stars / night-sky soothing effect (TASK-018).
+ *
+ * Renders a fullscreen animated starfield with the aesthetic of a projected
+ * star night-light.  Visual layers (back → front):
+ *   1. Deep-space radial background gradient (indigo/purple centre → near-black)
+ *   2. Faint nebula blobs — two large radial-gradient discs that pulse slowly
+ *   3. Stars — 160 small circles with individual opacity twinkling.
+ *      Brighter/larger stars also receive a soft radial-glow halo.
+ *
+ * All star positions are pre-seeded once from a deterministic PRNG so the
+ * layout is stable across redraws.  The whole starfield drifts with a very
+ * slow rotation around the canvas centre (one full revolution ≈ 90 minutes).
+ * 24 fps cap keeps battery usage low.
+ *
+ * Colour palette: deep indigo/purple backgrounds; white, cool-blue, and
+ * pale-lavender star tints.
+ */
 function _startStarsEffect() {
   if (!soothingCanvas) return;
   // Canvas already sized by _resizeCanvas() called in startSoothingMode().
   const ctx = soothingCanvas.getContext('2d');
-  // Placeholder: deep space radial gradient — full animated stars in TASK-018
-  const grad = ctx.createRadialGradient(
-    soothingCanvas.width / 2, soothingCanvas.height / 2, 0,
-    soothingCanvas.width / 2, soothingCanvas.height / 2, Math.max(soothingCanvas.width, soothingCanvas.height) / 2,
-  );
-  grad.addColorStop(0,    '#1a1a4e');
-  grad.addColorStop(0.7,  '#0a0a2a');
-  grad.addColorStop(1,    '#000010');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, soothingCanvas.width, soothingCanvas.height);
-  soothingCanvas.style.background = '';
+
+  // ── Timing ────────────────────────────────────────────────────────────────
+  const TARGET_FPS = 24;
+  const FRAME_MS   = 1000 / TARGET_FPS;
+  let lastMs = 0;
+  let t = 0;
+
+  // ── Deterministic PRNG (mulberry32) — stable star layout ─────────────────
+  let _seed = 0x9f2d3b1c;
+  function rand() {
+    _seed |= 0; _seed += 0x6d2b79f5 | 0;
+    let z = _seed;
+    z = Math.imul(z ^ (z >>> 15), 1 | z);
+    z ^= z + Math.imul(z ^ (z >>> 7), 61 | z);
+    return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
+  }
+
+  // ── Star definitions ──────────────────────────────────────────────────────
+  // Positions extend slightly beyond [0,1] so the canvas edges stay covered
+  // even after the slow rotation has been applied.
+  const STAR_COUNT = 160;
+  const stars = Array.from({ length: STAR_COUNT }, () => {
+    const xFrac        = -0.15 + rand() * 1.30;
+    const yFrac        = -0.15 + rand() * 1.30;
+    const radius       = 0.5  + rand() * 2.0;
+    const baseAlpha    = 0.30 + rand() * 0.70;
+    const twinkleAmp   = 0.12 + rand() * 0.30;
+    const twinkleSpeed = 0.25 + rand() * 1.20;
+    const twinklePhase = rand() * Math.PI * 2;
+    // 0 = white/silver,  1 = cool blue,  2 = pale lavender
+    const colorTint    = rand() < 0.65 ? 0 : (rand() < 0.55 ? 1 : 2);
+    return { xFrac, yFrac, radius, baseAlpha, twinkleAmp, twinkleSpeed, twinklePhase, colorTint };
+  });
+
+  // ── Nebula blobs (background ambience, not rotating) ──────────────────────
+  const nebulae = [
+    { xFrac: 0.28, yFrac: 0.38, rFrac: 0.40, r: 70, g: 55, b: 160, baseAlpha: 0.065, speed: 0.11, phase: 0.0 },
+    { xFrac: 0.68, yFrac: 0.65, rFrac: 0.32, r: 40, g: 25, b: 130, baseAlpha: 0.050, speed: 0.08, phase: 1.9 },
+  ];
+
+  // ── Per-frame render ──────────────────────────────────────────────────────
+  function drawFrame(timestamp) {
+    // Always store RAF handle first so startSoothingMode can cancel this loop.
+    _animFrame = requestAnimationFrame(drawFrame);
+
+    // FPS throttle — skip rendering but keep the loop alive.
+    if (timestamp - lastMs < FRAME_MS) return;
+    lastMs = timestamp;
+
+    const W = soothingCanvas.width;
+    const H = soothingCanvas.height;
+    t += 0.015; // slow tick
+
+    // Very slow rotation: full revolution ≈ 90 min at 24 fps
+    // t accumulates 0.015 * 24 = 0.36 per second
+    // rotation rate = 0.003 * 0.36 ≈ 0.00108 rad/s → 2π / 0.00108 ≈ 5820 s
+    const rotation = t * 0.003;
+
+    // ── 1. Background ────────────────────────────────────────────────────────
+    const bg = ctx.createRadialGradient(
+      W * 0.50, H * 0.42, 0,
+      W * 0.50, H * 0.42, Math.max(W, H) * 0.80,
+    );
+    bg.addColorStop(0,    '#1c1045'); // deep indigo-purple
+    bg.addColorStop(0.40, '#0c0828'); // dark indigo
+    bg.addColorStop(0.75, '#06041a'); // near-black blue
+    bg.addColorStop(1,    '#020209'); // almost black
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // ── 2. Nebula blobs ───────────────────────────────────────────────────────
+    for (const n of nebulae) {
+      const cx    = n.xFrac * W;
+      const cy    = n.yFrac * H;
+      const r     = n.rFrac * Math.min(W, H);
+      const alpha = n.baseAlpha * (0.70 + 0.30 * Math.sin(t * n.speed + n.phase));
+      const grad  = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0,   `rgba(${n.r},${n.g},${n.b},${alpha.toFixed(3)})`);
+      grad.addColorStop(0.5, `rgba(${n.r},${n.g},${n.b},${(alpha * 0.4).toFixed(3)})`);
+      grad.addColorStop(1,   'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ── 3. Stars ──────────────────────────────────────────────────────────────
+    ctx.save();
+    // Rotate slowly around the canvas centre to simulate a night-light projector.
+    ctx.translate(W * 0.5, H * 0.5);
+    ctx.rotate(rotation);
+    ctx.translate(-W * 0.5, -H * 0.5);
+
+    for (const s of stars) {
+      const x = s.xFrac * W;
+      const y = s.yFrac * H;
+
+      // Twinkling opacity.
+      const alpha = Math.max(0.02, Math.min(1,
+        s.baseAlpha + s.twinkleAmp * Math.sin(t * s.twinkleSpeed + s.twinklePhase),
+      ));
+
+      // Colour channels — brighter at peak opacity.
+      const lum = 195 + Math.round(alpha * 60); // 195–255
+      let cr, cg, cb;
+      if (s.colorTint === 1) {        // cool blue
+        cr = Math.round(lum * 0.72); cg = Math.round(lum * 0.87); cb = lum;
+      } else if (s.colorTint === 2) { // pale lavender
+        cr = Math.round(lum * 0.88); cg = Math.round(lum * 0.75); cb = lum;
+      } else {                        // white / silver
+        cr = lum; cg = lum; cb = lum;
+      }
+
+      // Soft glow halo for the brightest, largest stars.
+      if (s.baseAlpha > 0.78 && s.radius > 1.3) {
+        const glowR = s.radius * 4.0;
+        const halo  = ctx.createRadialGradient(x, y, 0, x, y, glowR);
+        halo.addColorStop(0,   `rgba(${cr},${cg},${cb},${(alpha * 0.35).toFixed(3)})`);
+        halo.addColorStop(1,   'rgba(0,0,0,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(x, y, glowR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Star dot.
+      ctx.fillStyle = `rgba(${cr},${cg},${cb},${alpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(x, y, s.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  _animFrame = requestAnimationFrame(drawFrame);
 }
 
 /** Music mode stub (TASK-019). */

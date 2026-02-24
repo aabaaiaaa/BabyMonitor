@@ -130,7 +130,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Implement a fullscreen canvas-based animated water/ripple light effect. Use soft blue and teal tones with gentle horizontal wave patterns or caustic-light ripples. Animate with slow sinusoidal movement. Keep the rendering lightweight — avoid per-pixel operations; use layered semi-transparent shapes or pre-computed lookup tables. The output should feel calm and soothing.
 
 ### TASK-018: Implement stars/night sky soothing effect
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-015
 - **Description**: Implement a fullscreen canvas-based starfield or projected-stars effect. Render a dark background with many small, softly glowing dots that twinkle gently using opacity animation. Optionally add a slow rotation or drift to simulate a projected star night-light. Keep the colour palette to deep blues, purples, and white/silver. Keep the rendering lightweight.
