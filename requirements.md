@@ -477,7 +477,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 ## E2E Testing
 
 ### TASK-062: Set up Playwright E2E test framework
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-001
 - **Description**: Add Playwright as a development-only testing tool. Create a `tests/` directory with a `package.json` that installs Playwright as a devDependency — this keeps test tooling separate from the app's plain HTML/CSS/JS structure. Create `playwright.config.js` configuring: (1) Chromium only (the target browser for this app); (2) launch args `--use-fake-ui-for-media-stream` and `--use-fake-device-for-media-stream` so tests run without a real camera or microphone; (3) a base URL pointing to a local static file server (e.g. `npx serve`); (4) a test timeout of 20 seconds to accommodate WebRTC connection establishment. Create a shared helper (`tests/helpers.js`) that launches two browser contexts representing a baby device and a parent device, each with isolated `localStorage`. Add `npm test` and `npm run test:headed` scripts to the `tests/package.json`. The production app files must remain unchanged — no build tooling, bundlers, or config files added to the app root.
