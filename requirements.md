@@ -202,7 +202,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Handle the case where the parent or baby app tab is hidden or the phone is locked. Use the Page Visibility API to detect when the tab becomes hidden. When the baby monitor tab is hidden: keep the WebRTC connection and media streams alive (do not stop tracks), and re-acquire the Wake Lock when the tab becomes visible again. On the parent side when the tab is hidden: keep connections alive and use the Notifications API to deliver movement or battery alerts. Show a persistent banner in the app instructing users to keep the tab open or install the PWA to improve background reliability.
 
 ### TASK-030: Implement connection health monitoring and auto-reconnect
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-007, TASK-061
 - **Description**: Monitor the connection state and attempt automatic reconnection without user intervention. The approach differs by connection method.

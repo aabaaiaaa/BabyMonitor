@@ -387,6 +387,52 @@ body.baby-screen .pairing-step__desc {
 }
 
 /* --------------------------------------------------------------------------
+   Reconnecting overlay (TASK-030)
+   Shown during auto-reconnect attempts. Sits above the soothing canvas
+   so the baby device screen remains calm and unobtrusive.
+   -------------------------------------------------------------------------- */
+.reconnect-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-overlay) - 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.reconnect-overlay__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  color: rgba(255, 255, 255, 0.88);
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.reconnect-overlay__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--color-reconnecting);
+  border-radius: 50%;
+  animation: reconnect-spin 0.85s linear infinite;
+}
+
+@keyframes reconnect-spin {
+  to { transform: rotate(360deg); }
+}
+
+.reconnect-overlay__text {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* --------------------------------------------------------------------------
    Responsive overrides for baby view
    -------------------------------------------------------------------------- */
 @media (min-width: 768px) {

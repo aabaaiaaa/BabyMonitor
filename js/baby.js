@@ -102,6 +102,31 @@ let activeConnection = null;
 /** @type {Function|null} Unsubscribe function for the current peer status listener */
 let _peerStatusUnsub = null;
 
+// ---------------------------------------------------------------------------
+// Auto-reconnect state (TASK-030)
+// ---------------------------------------------------------------------------
+
+/** PeerJS peer ID of the connected parent device — stored for auto-reconnect (TASK-030) */
+let _parentPeerId = null;
+
+/** Connection method used for the last successful connection: 'peerjs'|'offline'|null (TASK-030) */
+let _lastConnectionMethod = null;
+
+/** True while automatic reconnection is in progress (TASK-030) */
+let _isReconnecting = false;
+
+/** Current auto-reconnect attempt number, 1-based (TASK-030) */
+let _reconnectAttempt = 0;
+
+/** setTimeout handle for the next scheduled reconnect attempt (TASK-030) */
+let _reconnectTimer = null;
+
+/** Maximum number of auto-reconnect attempts before showing the re-pair prompt (TASK-030) */
+const AUTO_RECONNECT_MAX_ATTEMPTS = 3;
+
+/** Delays in ms between reconnect attempts — attempt 1, 2, 3 (TASK-030) */
+const AUTO_RECONNECT_DELAYS_MS = [3000, 6000, 12000];
+
 /** @type {WakeLockSentinel|null} Screen wake lock (TASK-003) */
 let wakeLock = null;
 
@@ -290,9 +315,14 @@ const disconnectBtn       = document.getElementById('btn-disconnect');
 const settingsCloseBtn    = document.getElementById('baby-settings-close');
 
 // Disconnected screen
-const reconnectStatus     = document.getElementById('reconnect-status');
-const rePairBtn           = document.getElementById('btn-re-pair');
-const goHomeBtn           = document.getElementById('btn-go-home');
+const reconnectStatus      = document.getElementById('reconnect-status');
+const disconnectedHeading  = document.getElementById('disconnected-heading');
+const rePairBtn            = document.getElementById('btn-re-pair');
+const goHomeBtn            = document.getElementById('btn-go-home');
+
+// Reconnecting overlay (TASK-030)
+const reconnectOverlay     = document.getElementById('reconnect-overlay');
+const reconnectOverlayText = document.getElementById('reconnect-overlay-text');
 
 // File transfer progress overlay (TASK-013)
 const babyTransferStatus  = document.getElementById('baby-transfer-status');
@@ -424,6 +454,264 @@ function _advanceIdPoolForReconnect() {
   // Check replenishment now so parents receive new IDs over the reconnected channel.
   _checkAndReplenishPool();
   return nextId;
+}
+
+// ---------------------------------------------------------------------------
+// Connection health monitoring and auto-reconnect (TASK-030)
+// ---------------------------------------------------------------------------
+
+/**
+ * Show the reconnecting overlay inside the baby monitor view.
+ * Keeps the soothing canvas visible while indicating reconnection is in progress.
+ * @param {string} [text] — status text to display
+ */
+function _showReconnectOverlay(text = 'Reconnecting…') {
+  if (reconnectOverlayText) reconnectOverlayText.textContent = text;
+  reconnectOverlay?.classList.remove('hidden');
+  updateConnectionStatus('reconnecting');
+}
+
+/** Hide the reconnecting overlay (TASK-030). */
+function _hideReconnectOverlay() {
+  reconnectOverlay?.classList.add('hidden');
+}
+
+/**
+ * Cancel any pending auto-reconnect timer and reset reconnect state.
+ * Safe to call even when no reconnect is in progress.
+ */
+function _cancelAutoReconnect() {
+  if (_reconnectTimer !== null) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
+  _isReconnecting = false;
+  _reconnectAttempt = 0;
+  _hideReconnectOverlay();
+}
+
+/**
+ * Handle a connection state change from the WebRTC layer (TASK-030).
+ *
+ * Decides whether to attempt automatic reconnection or fall through to the
+ * disconnected screen, based on the current connection method and state.
+ *
+ * @param {string} connState — 'connected'|'reconnecting'|'disconnected'|'failed'
+ */
+function _handleConnectionStateChange(connState) {
+  if (connState === 'connected') {
+    // Connection (re)established — update status badge
+    updateConnectionStatus('connected');
+    if (activeConnection?.dataChannel) {
+      sendMessage(activeConnection.dataChannel, MSG.CONN_STATUS, connState);
+    }
+    return;
+  }
+
+  if (connState === 'reconnecting') {
+    // Transient ICE disconnect — show reconnecting status and wait for recovery
+    _showReconnectOverlay('Reconnecting…');
+    if (activeConnection?.dataChannel) {
+      sendMessage(activeConnection.dataChannel, MSG.CONN_STATUS, connState);
+    }
+    return;
+  }
+
+  if (connState === 'disconnected' || connState === 'failed') {
+    if (_isReconnecting) {
+      // Already mid-reconnect — the active reconnect attempt handles the next step
+      return;
+    }
+
+    if (_lastConnectionMethod === 'peerjs' && _parentPeerId && localStream) {
+      // PeerJS path: start pool-based auto-reconnect
+      _isReconnecting = true;
+      _reconnectAttempt = 0;
+      _showReconnectOverlay(`Reconnecting… (1/${AUTO_RECONNECT_MAX_ATTEMPTS})`);
+      // Close the broken connection object before re-registering
+      try { activeConnection?.close?.(); } catch (_) { /* ignore */ }
+      activeConnection = null;
+      _schedulePeerJsReconnect(1);
+    } else if (_lastConnectionMethod === 'offline' && activeConnection?.peerConnection) {
+      // Offline path: attempt ICE restart
+      _isReconnecting = true;
+      _showReconnectOverlay('Reconnecting…');
+      _attemptOfflineIceRestart();
+    } else {
+      // Cannot auto-reconnect — fall through to disconnected screen
+      handleDisconnect(connState);
+    }
+  }
+}
+
+/**
+ * Schedule the next PeerJS reconnect attempt after a delay.
+ * @param {number} attempt — 1-based attempt counter
+ */
+function _schedulePeerJsReconnect(attempt) {
+  const delay = AUTO_RECONNECT_DELAYS_MS[attempt - 1] ?? AUTO_RECONNECT_DELAYS_MS.at(-1);
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    _attemptPeerJsReconnect(attempt);
+  }, delay);
+}
+
+/**
+ * Attempt to reconnect to the parent via PeerJS using the next backup pool ID.
+ *
+ * Advances the backup ID pool by one position, re-registers with PeerJS under
+ * the new ID, then calls the parent back.  On success, resumes normal monitoring.
+ * On failure, schedules the next attempt or falls back to the re-pair prompt.
+ *
+ * @param {number} attempt — 1-based attempt counter
+ */
+async function _attemptPeerJsReconnect(attempt) {
+  if (!_isReconnecting) return; // Aborted by user
+
+  _reconnectAttempt = attempt;
+  _showReconnectOverlay(`Reconnecting… (${attempt}/${AUTO_RECONNECT_MAX_ATTEMPTS})`);
+  console.log(`[baby] PeerJS reconnect attempt ${attempt}/${AUTO_RECONNECT_MAX_ATTEMPTS} (TASK-030)`);
+
+  // Step 1: advance to the next backup peer ID
+  const nextId = _advanceIdPoolForReconnect();
+  if (!nextId) {
+    console.warn('[baby] PeerJS reconnect: backup ID pool exhausted (TASK-030)');
+    _onAutoReconnectFailed('Backup ID pool exhausted — please re-pair.');
+    return;
+  }
+
+  console.log(`[baby] Reconnect attempt ${attempt} using peer ID: ${nextId} (TASK-030)`);
+
+  try {
+    // Step 2: re-register with PeerJS under the new backup ID
+    await initPeer(null, null, nextId);
+
+    // Step 3: call the parent back using the stored parent peer ID
+    await babyCallParent(_parentPeerId, localStream, {
+      onReady(conn) {
+        if (!_isReconnecting) return; // User aborted during handshake
+        _cancelAutoReconnect();
+        activeConnection = conn;
+        updateConnectionStatus('connected');
+        // Resume monitoring (shows baby-monitor, starts battery, sends state)
+        startMonitor(conn);
+        console.log('[baby] PeerJS reconnect succeeded (TASK-030)');
+      },
+      onState(s) {
+        if (s === 'reconnecting') {
+          _showReconnectOverlay(`Reconnecting… (${attempt}/${AUTO_RECONNECT_MAX_ATTEMPTS})`);
+        } else if ((s === 'disconnected' || s === 'failed') && _isReconnecting) {
+          // This connection attempt failed — schedule next retry
+          if (attempt < AUTO_RECONNECT_MAX_ATTEMPTS) {
+            _schedulePeerJsReconnect(attempt + 1);
+          } else {
+            _onAutoReconnectFailed('Could not reconnect automatically. Please re-pair.');
+          }
+        }
+      },
+      onMessage(msg) {
+        handleDataMessage(msg);
+      },
+    });
+  } catch (err) {
+    console.warn(`[baby] PeerJS reconnect attempt ${attempt} threw:`, err);
+    if (_isReconnecting) {
+      if (attempt < AUTO_RECONNECT_MAX_ATTEMPTS) {
+        _schedulePeerJsReconnect(attempt + 1);
+      } else {
+        _onAutoReconnectFailed('Could not reconnect automatically. Please re-pair.');
+      }
+    }
+  }
+}
+
+/**
+ * Attempt an ICE restart on the offline QR path connection (TASK-030).
+ * Falls back to the re-pair prompt if ICE restart is not supported or times out.
+ */
+function _attemptOfflineIceRestart() {
+  const pc = activeConnection?.peerConnection;
+  if (!pc || typeof pc.restartIce !== 'function') {
+    console.log('[baby] ICE restart not supported — falling back to re-pair (TASK-030)');
+    _onAutoReconnectFailed('ICE restart not supported on this device.');
+    return;
+  }
+
+  console.log('[baby] Attempting ICE restart (TASK-030)');
+
+  const ICE_RESTART_TIMEOUT_MS = 15_000;
+  let resolved = false;
+
+  const cleanup = () => {
+    resolved = true;
+    clearTimeout(timeoutId);
+    pc.removeEventListener('iceconnectionstatechange', onIceChange);
+    pc.removeEventListener('connectionstatechange', onConnChange);
+  };
+
+  const onIceChange = () => {
+    if (resolved) return;
+    const ice = pc.iceConnectionState;
+    if (ice === 'connected' || ice === 'completed') {
+      cleanup();
+      _isReconnecting = false;
+      _hideReconnectOverlay();
+      updateConnectionStatus('connected');
+      console.log('[baby] ICE restart succeeded (TASK-030)');
+    } else if (ice === 'failed') {
+      cleanup();
+      _onAutoReconnectFailed('ICE restart failed — please re-pair.');
+    }
+  };
+
+  const onConnChange = () => {
+    if (resolved) return;
+    const cs = pc.connectionState;
+    if (cs === 'connected') {
+      cleanup();
+      _isReconnecting = false;
+      _hideReconnectOverlay();
+      updateConnectionStatus('connected');
+      console.log('[baby] ICE restart succeeded (TASK-030)');
+    } else if (cs === 'failed') {
+      cleanup();
+      _onAutoReconnectFailed('ICE restart failed — please re-pair.');
+    }
+  };
+
+  const timeoutId = setTimeout(() => {
+    if (resolved) return;
+    cleanup();
+    _onAutoReconnectFailed('ICE restart timed out — please re-pair.');
+  }, ICE_RESTART_TIMEOUT_MS);
+
+  pc.addEventListener('iceconnectionstatechange', onIceChange);
+  pc.addEventListener('connectionstatechange', onConnChange);
+  pc.restartIce();
+}
+
+/**
+ * Called when all auto-reconnect attempts have failed (TASK-030).
+ * Cancels pending timers, resets reconnect state, and falls back to the
+ * disconnected screen with the re-pair prompt.
+ *
+ * @param {string} reason — user-facing status message
+ */
+function _onAutoReconnectFailed(reason) {
+  console.log('[baby] Auto-reconnect failed:', reason, '(TASK-030)');
+  const wasReconnecting = _isReconnecting;
+  _cancelAutoReconnect();
+
+  if (wasReconnecting) {
+    // Clean up broken connection resources before showing disconnected screen
+    try { activeConnection?.close?.(); } catch (_) { /* ignore */ }
+    activeConnection = null;
+  }
+
+  // Show disconnected screen with failure reason
+  if (disconnectedHeading) disconnectedHeading.textContent = 'Disconnected';
+  showDisconnected('');
+  if (reconnectStatus) reconnectStatus.textContent = reason;
 }
 
 // ---------------------------------------------------------------------------
@@ -605,6 +893,7 @@ function showDisconnected(reason = '') {
   pairingSection?.classList.add('hidden');
   babyMonitor?.classList.add('hidden');
   disconnectedScreen?.classList.remove('hidden');
+  if (disconnectedHeading) disconnectedHeading.textContent = 'Disconnected';
   if (reconnectStatus) reconnectStatus.textContent = reason;
 }
 
@@ -680,6 +969,10 @@ async function startPeerJsPairing() {
         localStream = await getUserMediaStream();
         if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Establishing connection…';
 
+        // TASK-030: store parent ID and method for auto-reconnect
+        _parentPeerId = parentPeerId;
+        _lastConnectionMethod = 'peerjs';
+
         await babyCallParent(parentPeerId, localStream, {
           onReady(conn) {
             _peerStatusUnsub?.();
@@ -689,15 +982,7 @@ async function startPeerJsPairing() {
             startMonitor(conn);
           },
           onState(connState) {
-            if (connState === 'reconnecting') {
-              updateConnectionStatus('reconnecting');
-              // Notify parent that baby's connection is temporarily degraded
-              if (activeConnection?.dataChannel) {
-                sendMessage(activeConnection.dataChannel, MSG.CONN_STATUS, connState);
-              }
-            } else if (connState === 'disconnected' || connState === 'failed') {
-              handleDisconnect(connState);
-            }
+            _handleConnectionStateChange(connState);
           },
           onMessage(msg) {
             handleDataMessage(msg);
@@ -765,6 +1050,9 @@ async function startOfflinePairing() {
     // Step 1: get media stream for inclusion in the offer
     localStream = await getUserMediaStream();
 
+    // TASK-030: record connection method for auto-reconnect
+    _lastConnectionMethod = 'offline';
+
     // Step 2: generate SDP offer + ICE candidates
     const offerJson = await offlineBabyCreateOffer(localStream, {
       onReady(conn) {
@@ -772,12 +1060,7 @@ async function startOfflinePairing() {
         startMonitor(conn);
       },
       onState(s) {
-        if (s === 'reconnecting') {
-          updateConnectionStatus('reconnecting');
-          if (activeConnection?.dataChannel) {
-            sendMessage(activeConnection.dataChannel, MSG.CONN_STATUS, s);
-          }
-        } else if (s === 'disconnected' || s === 'failed') handleDisconnect(s);
+        _handleConnectionStateChange(s);
       },
       onMessage(msg) {
         handleDataMessage(msg);
@@ -813,12 +1096,7 @@ async function startOfflinePairing() {
         startMonitor(conn);
       },
       onState(s) {
-        if (s === 'reconnecting') {
-          updateConnectionStatus('reconnecting');
-          if (activeConnection?.dataChannel) {
-            sendMessage(activeConnection.dataChannel, MSG.CONN_STATUS, s);
-          }
-        } else if (s === 'disconnected' || s === 'failed') handleDisconnect(s);
+        _handleConnectionStateChange(s);
       },
     });
   } catch (err) {
@@ -2710,6 +2988,9 @@ babyMonitor?.addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 
 function handleDisconnect(reason) {
+  // Cancel any in-progress auto-reconnect (TASK-030)
+  _cancelAutoReconnect();
+
   // Clean up peer status listener if still active
   _peerStatusUnsub?.();
   _peerStatusUnsub = null;
@@ -2817,7 +3098,10 @@ disconnectBtn?.addEventListener('click', () => {
 // Event listeners — disconnected screen
 // ---------------------------------------------------------------------------
 
-rePairBtn?.addEventListener('click', () => showPairing());
+rePairBtn?.addEventListener('click', () => {
+  _cancelAutoReconnect(); // Abort any in-progress reconnect (TASK-030)
+  showPairing();
+});
 goHomeBtn?.addEventListener('click', () => { window.location.href = 'index.html'; });
 
 // ---------------------------------------------------------------------------

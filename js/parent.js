@@ -91,6 +91,23 @@ let wakeLock = null;
 let _peerStatusUnsub = null;
 
 // ---------------------------------------------------------------------------
+// Auto-reconnect state (TASK-030)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-device reconnect state.
+ * Key: deviceId. Value: { timerId: number|null, aborted: boolean, poolIds: string[], poolStartIndex: number }
+ * @type {Map<string, { timerId: number|null, aborted: boolean, poolIds: string[], poolStartIndex: number }>}
+ */
+const _reconnectState = new Map();
+
+/** Maximum number of parent-side reconnect attempts per device (TASK-030) */
+const PARENT_RECONNECT_MAX_ATTEMPTS = 3;
+
+/** Delays in ms for parent-side reconnect attempts — attempt 1, 2, 3 (TASK-030) */
+const PARENT_RECONNECT_DELAYS_MS = [3000, 6000, 12000];
+
+// ---------------------------------------------------------------------------
 // File transfer state (TASK-013)
 // ---------------------------------------------------------------------------
 
@@ -514,7 +531,12 @@ async function startPeerJsPairing() {
       },
       onState(s) {
         if (s === 'disconnected' || s === 'failed') {
-          removeMonitor(babyPeerId);
+          // TASK-030: attempt auto-reconnect via backup ID pool before removing monitor
+          if (monitors.has(babyPeerId)) {
+            _startParentReconnect(babyPeerId, babyPeerId);
+          } else {
+            removeMonitor(babyPeerId);
+          }
         }
       },
       onMessage(msg) {
@@ -605,8 +627,15 @@ async function startOfflinePairing() {
         showDashboard();
       },
       onState(s) {
-        if (s === 'disconnected' || s === 'failed') {
-          removeMonitor(tempDeviceId);
+        // TASK-030: offline path — show reconnecting state; baby handles ICE restart
+        if (s === 'reconnecting') {
+          _updateMonitorConnStatus(tempDeviceId, 'reconnecting');
+        } else if (s === 'connected') {
+          _updateMonitorConnStatus(tempDeviceId, 'connected');
+        } else if (s === 'disconnected' || s === 'failed') {
+          _updateMonitorConnStatus(tempDeviceId, 'disconnected');
+          // No backup pool for offline connections — show re-pair prompt directly
+          _showReconnectFailedBanner(tempDeviceId);
         }
       },
       onMessage(msg) {
@@ -800,6 +829,9 @@ function removeMonitor(deviceId) {
   const entry = monitors.get(deviceId);
   if (!entry) return;
 
+  // Cancel any pending auto-reconnect for this device (TASK-030)
+  _cancelParentReconnect(deviceId);
+
   // Abort any active file transfer to this device (TASK-013).
   // Setting _activeTransfer to null causes the send loop to exit cleanly on
   // its next iteration; we also re-enable the file picker / send button here
@@ -917,6 +949,298 @@ function updateBackupPoolIndex(deviceId, newIndex) {
     // Non-fatal — the baby will re-send the pool (with updated index) on reconnect.
   }
   console.log('[parent] Updated backup pool index for', deviceId, 'to', newIndex, '(TASK-061)');
+}
+
+// ---------------------------------------------------------------------------
+// Connection health monitoring and auto-reconnect (TASK-030)
+// ---------------------------------------------------------------------------
+
+/**
+ * Update the connection status badge and overlay on a monitor panel (TASK-030).
+ *
+ * @param {string} deviceId
+ * @param {'connected'|'reconnecting'|'disconnected'} state
+ */
+function _updateMonitorConnStatus(deviceId, state) {
+  const entry = monitors.get(deviceId);
+  if (!entry) return;
+
+  const statusBadge = entry.panelEl?.querySelector('.status-badge');
+  const connOverlay = entry.panelEl?.querySelector('.monitor-panel__conn-overlay');
+  const overlaySpan = connOverlay?.querySelector('span');
+
+  if (statusBadge) {
+    statusBadge.className = 'status-badge';
+    if (state === 'connected')    statusBadge.classList.add('connected');
+    if (state === 'reconnecting') statusBadge.classList.add('reconnecting');
+    statusBadge.setAttribute('aria-label', `Status: ${state}`);
+  }
+
+  if (connOverlay) {
+    if (state === 'connected') {
+      connOverlay.classList.add('hidden');
+    } else if (state === 'reconnecting') {
+      if (overlaySpan) overlaySpan.textContent = 'Reconnecting…';
+      connOverlay.classList.remove('hidden');
+    } else if (state === 'disconnected') {
+      if (overlaySpan) overlaySpan.textContent = 'Disconnected';
+      connOverlay.classList.remove('hidden');
+    }
+  }
+}
+
+/**
+ * Start the parent-side PeerJS auto-reconnect flow for a disconnected baby (TASK-030).
+ *
+ * Retrieves the backup ID pool for the device and cycles through IDs in order,
+ * listening for the baby to re-register under each one.  On success the monitor
+ * entry is updated in-place.  On failure a re-pair banner is shown.
+ *
+ * @param {string} deviceId   — monitor entry key
+ * @param {string} originalId — the baby's original primary peer ID
+ */
+function _startParentReconnect(deviceId, originalId) {
+  // Cancel any existing reconnect for this device
+  _cancelParentReconnect(deviceId);
+
+  const poolData = getBackupPoolForReconnect(deviceId);
+  if (!poolData?.ids.length) {
+    console.log('[parent] No backup pool for', deviceId, '— cannot auto-reconnect (TASK-030)');
+    _onParentReconnectFailed(deviceId);
+    return;
+  }
+
+  console.log('[parent] Starting auto-reconnect for', deviceId,
+              '— pool has', poolData.ids.length, 'backup IDs (TASK-030)');
+
+  _updateMonitorConnStatus(deviceId, 'reconnecting');
+
+  _reconnectState.set(deviceId, {
+    timerId:        null,
+    aborted:        false,
+    poolIds:        poolData.ids,
+    poolStartIndex: poolData.startIndex,
+  });
+
+  _scheduleParentReconnect(deviceId, originalId, 1);
+}
+
+/**
+ * Schedule the next parent-side reconnect attempt with a delay (TASK-030).
+ * @param {string} deviceId
+ * @param {string} originalId
+ * @param {number} attempt — 1-based
+ */
+function _scheduleParentReconnect(deviceId, originalId, attempt) {
+  const state = _reconnectState.get(deviceId);
+  if (!state || state.aborted) return;
+
+  const delay = PARENT_RECONNECT_DELAYS_MS[attempt - 1] ?? PARENT_RECONNECT_DELAYS_MS.at(-1);
+  state.timerId = setTimeout(() => {
+    state.timerId = null;
+    _attemptParentReconnect(deviceId, originalId, attempt);
+  }, delay);
+}
+
+/**
+ * Attempt to reconnect to a baby device from the parent side (TASK-030).
+ *
+ * Listens for the baby to register under the backup ID at poolIds[attempt-1]
+ * and also sends a trigger data connection to prompt it to call back.
+ *
+ * @param {string} deviceId
+ * @param {string} originalId
+ * @param {number} attempt — 1-based
+ */
+async function _attemptParentReconnect(deviceId, originalId, attempt) {
+  const reconnect = _reconnectState.get(deviceId);
+  if (!reconnect || reconnect.aborted) return;
+
+  const entry = monitors.get(deviceId);
+  if (!entry) return;
+
+  // Get the target backup ID for this attempt
+  const idIndex  = attempt - 1;
+  if (idIndex >= reconnect.poolIds.length) {
+    console.warn('[parent] Backup pool exhausted for', deviceId, '(TASK-030)');
+    _onParentReconnectFailed(deviceId);
+    return;
+  }
+
+  const targetId = reconnect.poolIds[idIndex];
+  console.log(`[parent] Reconnect attempt ${attempt}/${PARENT_RECONNECT_MAX_ATTEMPTS}`
+              + ` to ${targetId} (TASK-030)`);
+
+  // Update overlay text to show progress
+  const connOverlay = entry.panelEl?.querySelector('.monitor-panel__conn-overlay');
+  const overlaySpan = connOverlay?.querySelector('span');
+  if (overlaySpan) {
+    overlaySpan.textContent = `Reconnecting… (${attempt}/${PARENT_RECONNECT_MAX_ATTEMPTS})`;
+  }
+
+  const peer = getPeer();
+  if (!peer) {
+    _onParentReconnectFailed(deviceId);
+    return;
+  }
+
+  // Per-attempt timeout: if neither onReady nor a failure fires within this window,
+  // advance to the next attempt automatically.
+  const ATTEMPT_TIMEOUT_MS = 12_000;
+  let attemptDone = false;
+
+  const attemptTimer = setTimeout(() => {
+    if (attemptDone) return;
+    attemptDone = true;
+    console.log(`[parent] Reconnect attempt ${attempt} to ${targetId} timed out (TASK-030)`);
+    if (attempt < PARENT_RECONNECT_MAX_ATTEMPTS) {
+      _scheduleParentReconnect(deviceId, originalId, attempt + 1);
+    } else {
+      _onParentReconnectFailed(deviceId);
+    }
+  }, ATTEMPT_TIMEOUT_MS);
+
+  const advanceOrFail = () => {
+    if (attemptDone) return;
+    attemptDone = true;
+    clearTimeout(attemptTimer);
+    if (attempt < PARENT_RECONNECT_MAX_ATTEMPTS) {
+      _scheduleParentReconnect(deviceId, originalId, attempt + 1);
+    } else {
+      _onParentReconnectFailed(deviceId);
+    }
+  };
+
+  try {
+    // Listen for the baby calling back under the backup ID
+    parentListenPeerJs({
+      onReady(conn) {
+        if (attemptDone || reconnect.aborted) {
+          conn.close?.();
+          return;
+        }
+        attemptDone = true;
+        clearTimeout(attemptTimer);
+
+        // Record the pool index that succeeded
+        const succeededIndex = reconnect.poolStartIndex + idIndex + 1;
+        updateBackupPoolIndex(deviceId, succeededIndex);
+        _reconnectState.delete(deviceId);
+
+        // Update the entry with the new connection
+        entry.conn = conn;
+        entry.mediaStream = conn.mediaStream;
+
+        // Reconnect the Web Audio source to the new media stream
+        if (conn.mediaStream && entry.audioCtx) {
+          const audioTracks = conn.mediaStream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            try {
+              entry.sourceNode?.disconnect();
+              const audioOnlyStream = new MediaStream(audioTracks);
+              entry.sourceNode = entry.audioCtx.createMediaStreamSource(audioOnlyStream);
+              entry.sourceNode.connect(entry.gainNode);
+              entry.sourceNode.connect(entry.analyserNode);
+            } catch (e) {
+              console.warn('[parent] Failed to reconnect audio source:', e);
+            }
+          }
+        }
+
+        // Update the video element with the new stream
+        const videoEl = entry.panelEl?.querySelector('.monitor-panel__video');
+        if (videoEl && conn.mediaStream) {
+          videoEl.srcObject = conn.mediaStream;
+        }
+
+        _updateMonitorConnStatus(deviceId, 'connected');
+        console.log('[parent] Reconnect to', deviceId, 'succeeded via', targetId, '(TASK-030)');
+      },
+      onState(s) {
+        if (attemptDone || reconnect.aborted) return;
+        if (s === 'disconnected' || s === 'failed') {
+          advanceOrFail();
+        }
+      },
+      onMessage(msg) {
+        handleDataMessage(deviceId, msg);
+      },
+    }, targetId); // Only accept the specific backup ID (TASK-022 pattern)
+
+    // Send a trigger data connection to the baby's new peer ID to prompt it to call back
+    const triggerConn = peer.connect(targetId, { reliable: true });
+    triggerConn.on('error', (err) => {
+      // Non-fatal: the timeout will handle this case
+      console.log(`[parent] Trigger to ${targetId} failed: ${err.message} (waiting for timeout)`);
+    });
+
+  } catch (err) {
+    console.warn('[parent] Error setting up reconnect listener for', targetId, err);
+    advanceOrFail();
+  }
+}
+
+/**
+ * Cancel a pending parent-side reconnect for a device (TASK-030).
+ * Safe to call when no reconnect is in progress.
+ * @param {string} deviceId
+ */
+function _cancelParentReconnect(deviceId) {
+  const state = _reconnectState.get(deviceId);
+  if (!state) return;
+  state.aborted = true;
+  if (state.timerId !== null) {
+    clearTimeout(state.timerId);
+    state.timerId = null;
+  }
+  _reconnectState.delete(deviceId);
+}
+
+/**
+ * Called when all parent-side reconnect attempts have failed (TASK-030).
+ * Shows a re-pair banner and leaves the monitor panel in a disconnected state.
+ * @param {string} deviceId
+ */
+function _onParentReconnectFailed(deviceId) {
+  console.log('[parent] All reconnect attempts failed for', deviceId, '(TASK-030)');
+  _cancelParentReconnect(deviceId);
+  _updateMonitorConnStatus(deviceId, 'disconnected');
+  _showReconnectFailedBanner(deviceId);
+}
+
+/**
+ * Show an alert banner prompting the user to re-pair a disconnected device (TASK-030).
+ * @param {string} deviceId
+ */
+function _showReconnectFailedBanner(deviceId) {
+  const entry = monitors.get(deviceId);
+  if (!entry) return;
+
+  const bannerKey = `${deviceId}:reconnect-failed`;
+  if (alertBanners?.querySelector(`[data-alert-key="${escapeHtml(bannerKey)}"]`)) return;
+
+  const banner = document.createElement('div');
+  banner.className = 'alert-banner alert-banner--warning';
+  banner.setAttribute('role', 'alert');
+  banner.dataset.alertKey = bannerKey;
+  banner.innerHTML = `
+    📡 <strong>${escapeHtml(entry.label)}</strong> disconnected — could not reconnect automatically.
+    <button class="alert-banner__repair-btn action-btn action-btn--small">Re-pair</button>
+    <button class="alert-banner__dismiss" aria-label="Dismiss">✕</button>
+  `;
+
+  banner.querySelector('.alert-banner__repair-btn')?.addEventListener('click', () => {
+    banner.remove();
+    removeMonitor(deviceId);
+    showPairing();
+  });
+
+  banner.querySelector('.alert-banner__dismiss')?.addEventListener('click', () => {
+    banner.remove();
+    removeMonitor(deviceId);
+  });
+
+  alertBanners?.prepend(banner);
 }
 
 // ---------------------------------------------------------------------------

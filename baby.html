@@ -178,6 +178,16 @@
     <!-- Hidden audio element receives the parent's speak-through stream (TASK-012) -->
     <audio id="speak-through-audio" autoplay playsinline aria-hidden="true"></audio>
 
+    <!-- Reconnecting overlay (TASK-030): shown during auto-reconnect attempts.
+         Displayed above the soothing canvas so the baby's display stays calm. -->
+    <div id="reconnect-overlay" class="reconnect-overlay hidden"
+         role="status" aria-live="assertive" aria-atomic="true">
+      <div class="reconnect-overlay__inner">
+        <div class="reconnect-overlay__spinner" aria-hidden="true"></div>
+        <p class="reconnect-overlay__text" id="reconnect-overlay-text">Reconnecting…</p>
+      </div>
+    </div>
+
     <!-- Unlocked settings overlay: accessible after triple-tap (TASK-039) -->
     <div id="baby-settings-overlay" class="baby-settings-overlay hidden" role="dialog"
          aria-modal="true" aria-label="Baby monitor settings">
@@ -237,7 +247,7 @@
   <section id="disconnected-screen" class="disconnected-screen hidden" aria-label="Disconnected">
     <div class="disconnected-screen__inner">
       <p class="disconnected-screen__icon" aria-hidden="true">📡</p>
-      <h2>Disconnected</h2>
+      <h2 id="disconnected-heading">Disconnected</h2>
       <p id="disconnected-reason">The connection to the parent device was lost.</p>
       <div class="reconnect-status" id="reconnect-status" aria-live="polite"></div>
       <button id="btn-re-pair" class="action-btn">Re-pair Devices</button>

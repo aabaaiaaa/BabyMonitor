@@ -469,12 +469,35 @@ export async function offlineParentReceiveOffer(offerJson, callbacks) {
     // Media stream ready — will be surfaced via onReady once data channel opens
   });
 
+  // Monitor ICE and connection state for TASK-030 reconnect handling.
+  // Fires 'reconnecting' on temporary disruption, 'connected' on recovery,
+  // 'failed'/'disconnected' on terminal failure.
+  let _offlineParentConnected = false;
+  const _trackParentIceState = () => {
+    const ice = pc.iceConnectionState;
+    const cs  = pc.connectionState;
+    if ((ice === 'connected' || ice === 'completed') || cs === 'connected') {
+      if (_offlineParentConnected) {
+        onState?.('connected'); // recovery after a 'reconnecting' event
+      }
+    } else if ((ice === 'disconnected' || cs === 'disconnected') && _offlineParentConnected) {
+      onState?.('reconnecting');
+    } else if (ice === 'failed' || cs === 'failed') {
+      onState?.('failed');
+    } else if (ice === 'closed' || cs === 'closed') {
+      onState?.('disconnected');
+    }
+  };
+  pc.addEventListener('iceconnectionstatechange', _trackParentIceState);
+  pc.addEventListener('connectionstatechange',    _trackParentIceState);
+
   // Listen for data channel from baby
   pc.addEventListener('datachannel', (event) => {
     _dataCh = event.channel;
     _wireDataChannel(_dataCh, onMessage);
 
     _dataCh.addEventListener('open', () => {
+      _offlineParentConnected = true;
       onState?.('connected');
       const streams = pc.getReceivers()
         .map(r => r.track)
@@ -492,6 +515,11 @@ export async function offlineParentReceiveOffer(offerJson, callbacks) {
         },
       });
       onReady?.(conn);
+    });
+
+    // Notify parent when the data channel closes unexpectedly
+    _dataCh.addEventListener('close', () => {
+      if (_offlineParentConnected) onState?.('disconnected');
     });
   });
 

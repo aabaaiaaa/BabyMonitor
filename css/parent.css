@@ -224,6 +224,21 @@
 
 .dark-mode .alert-banner--snooze { background: #052e16; color: #86efac; }
 
+/* Reconnect failure banner (TASK-030) */
+.alert-banner--warning {
+  background: #fff7ed;
+  color: #9a3412;
+  border-left: 4px solid #ea580c;
+}
+
+.dark-mode .alert-banner--warning { background: #431407; color: #fed7aa; }
+
+/* Re-pair button inside the reconnect failure banner (TASK-030) */
+.alert-banner__repair-btn {
+  margin-left: var(--space-sm);
+  flex-shrink: 0;
+}
+
 /* Snooze button inside a movement alert banner (TASK-027) */
 .alert-banner__snooze {
   font-size: 0.7rem;
