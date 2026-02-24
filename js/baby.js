@@ -38,6 +38,7 @@ import {
   renderQR, renderQRGrid,
   scanAuto, scanSingle, scanMulti, stopScanner,
 } from './qr.js';
+import { showCompatWarnings } from './browser-compat.js';
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -125,40 +126,21 @@ const rePairBtn           = document.getElementById('btn-re-pair');
 const goHomeBtn           = document.getElementById('btn-go-home');
 
 // ---------------------------------------------------------------------------
+// Browser compatibility check (TASK-045)
+// Run immediately at module load — before any user interaction or init().
+// ---------------------------------------------------------------------------
+
+const _compatResult = showCompatWarnings();
+
+// ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 
 /** Entry point: called after the user taps the tap-overlay. */
 async function init() {
-  checkBrowserCompatibility();
   setupTheme();
   await requestWakeLock(); // TASK-003
   showPairing();
-}
-
-// ---------------------------------------------------------------------------
-// Browser compatibility check (TASK-045)
-// ---------------------------------------------------------------------------
-
-function checkBrowserCompatibility() {
-  const ua = navigator.userAgent;
-  const isIosSafari = /iP(hone|ad|od)/.test(ua) && !/CriOS/.test(ua);
-
-  if (isIosSafari) {
-    // Block iOS Safari entirely
-    const modal = document.getElementById('compat-modal');
-    const msg   = document.getElementById('compat-modal-message');
-    const url   = document.getElementById('compat-modal-url');
-    if (modal && msg) {
-      msg.textContent =
-        'This app requires Chrome to function. ' +
-        'Please open this page in Chrome on your iPhone or iPad.';
-      if (url) url.textContent = window.location.href;
-      modal.classList.remove('hidden');
-    }
-    // Halt further execution
-    throw new Error('iOS Safari not supported');
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -808,10 +790,13 @@ goHomeBtn?.addEventListener('click', () => { window.location.href = 'index.html'
 // Tap-to-begin overlay (TASK-037)
 // ---------------------------------------------------------------------------
 
-tapOverlay?.addEventListener('click', () => {
-  tapOverlay.classList.add('hidden');
-  init().catch(err => {
-    // If init throws (e.g. browser compatibility block), keep overlay
-    console.error('[baby] init error:', err);
-  });
-}, { once: true });
+// If the browser is blocked (iOS Safari), the compat modal is already visible
+// and the tap overlay has been hidden — do not wire up the tap-to-begin handler.
+if (_compatResult !== 'blocked') {
+  tapOverlay?.addEventListener('click', () => {
+    tapOverlay.classList.add('hidden');
+    init().catch(err => {
+      console.error('[baby] init error:', err);
+    });
+  }, { once: true });
+}

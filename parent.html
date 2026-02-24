@@ -41,6 +41,26 @@
     </div>
   </div>
 
+  <!-- Browser compatibility blocking modal: shown for iOS Safari (TASK-045).
+       Populated and shown by js/browser-compat.js on page load. -->
+  <div id="compat-modal" class="compat-modal hidden" role="alertdialog" aria-modal="true"
+       aria-labelledby="compat-modal-title">
+    <div class="compat-modal__box">
+      <h2 id="compat-modal-title">Unsupported Browser</h2>
+      <p id="compat-modal-message"></p>
+      <p class="compat-modal__url" id="compat-modal-url"></p>
+      <button id="compat-copy-btn" class="action-btn compat-modal__copy-btn">Copy link</button>
+    </div>
+  </div>
+
+  <!-- Browser compatibility soft warning banner: shown for non-Chrome browsers (TASK-045). -->
+  <div id="compat-banner" class="compat-banner hidden" role="alert">
+    <p class="compat-banner__msg">
+      This app is optimised for Chrome. Some features may not work as expected in your current browser.
+    </p>
+    <button id="compat-banner-dismiss" class="compat-banner__dismiss" aria-label="Dismiss browser warning">✕</button>
+  </div>
+
   <!-- Pairing / setup wizard (TASK-006): shown before any baby is connected -->
   <section id="pairing-section" class="pairing-section hidden" aria-label="Pairing">
     <div class="pairing-section__inner">

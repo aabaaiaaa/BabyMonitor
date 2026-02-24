@@ -76,6 +76,7 @@
   --z-modal: 300;
   --z-toast: 400;
   --z-tap-overlay: 500;
+  --z-compat: 600;   /* browser compat modal — above everything, including tap overlay */
 }
 
 /* --------------------------------------------------------------------------
@@ -224,12 +225,14 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
-   Browser compatibility modal (TASK-045)
+   Browser compatibility blocking modal — iOS Safari (TASK-045)
+   z-index is above the tap-to-begin overlay so it is visible immediately
+   on page load without any user interaction.
    -------------------------------------------------------------------------- */
 .compat-modal {
   position: fixed;
   inset: 0;
-  z-index: var(--z-tap-overlay);
+  z-index: var(--z-compat);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -260,6 +263,67 @@ textarea {
   font-family: monospace;
   word-break: break-all;
   font-size: var(--font-size-sm);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.compat-modal__copy-btn {
+  margin-top: var(--space-md);
+  width: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   Browser compatibility soft warning banner — non-Chrome (TASK-045)
+   Displayed below the tap overlay once it is dismissed; does not block
+   the user from using the app.
+   -------------------------------------------------------------------------- */
+.compat-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: #fff3cd;
+  border-bottom: 2px solid var(--color-warning);
+  color: #664d03;
+  font-size: var(--font-size-sm);
+}
+
+.dark-mode .compat-banner {
+  background: rgba(255, 193, 7, 0.15);
+  border-bottom-color: var(--color-warning);
+  color: #ffe08a;
+}
+
+.compat-banner__msg {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.compat-banner__dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  font-size: 1rem;
+  color: inherit;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0.7;
+}
+
+.compat-banner__dismiss:hover,
+.compat-banner__dismiss:focus-visible {
+  opacity: 1;
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 /* --------------------------------------------------------------------------

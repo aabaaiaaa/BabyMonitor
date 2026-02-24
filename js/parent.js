@@ -41,6 +41,7 @@ import {
   renderQR, renderQRGrid,
   scanSingle, scanMulti, scanAuto, stopScanner,
 } from './qr.js';
+import { showCompatWarnings } from './browser-compat.js';
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -128,8 +129,18 @@ const cpDisconnect        = document.getElementById('cp-disconnect');
 // Initialisation
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Browser compatibility check (TASK-045)
+// Run immediately at module load — before any user interaction or init().
+// ---------------------------------------------------------------------------
+
+const _compatResult = showCompatWarnings();
+
+// ---------------------------------------------------------------------------
+// Initialisation
+// ---------------------------------------------------------------------------
+
 async function init() {
-  checkBrowserCompatibility();
   setupTheme();
   maybePromptDarkMode();
   await requestWakeLock();
@@ -139,28 +150,6 @@ async function init() {
   // If the user has no monitors yet, jump straight to pairing
   if (monitors.size === 0) {
     showPairing();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Browser compatibility (TASK-045)
-// ---------------------------------------------------------------------------
-
-function checkBrowserCompatibility() {
-  const ua = navigator.userAgent;
-  const isIosSafari = /iP(hone|ad|od)/.test(ua) && !/CriOS/.test(ua);
-
-  if (isIosSafari) {
-    const modal = document.getElementById('compat-modal');
-    const msg   = document.getElementById('compat-modal-message');
-    const url   = document.getElementById('compat-modal-url');
-    if (modal && msg) {
-      msg.textContent =
-        'This app requires Chrome. Please open this page in Chrome on your iPhone or iPad.';
-      if (url) url.textContent = window.location.href;
-      modal.classList.remove('hidden');
-    }
-    throw new Error('iOS Safari not supported');
   }
 }
 
@@ -918,9 +907,13 @@ function escapeHtml(str) {
 // Tap-to-begin overlay (TASK-037)
 // ---------------------------------------------------------------------------
 
-tapOverlay?.addEventListener('click', () => {
-  tapOverlay.classList.add('hidden');
-  init().catch(err => {
-    console.error('[parent] init error:', err);
-  });
-}, { once: true });
+// If the browser is blocked (iOS Safari), the compat modal is already visible
+// and the tap overlay has been hidden — do not wire up the tap-to-begin handler.
+if (_compatResult !== 'blocked') {
+  tapOverlay?.addEventListener('click', () => {
+    tapOverlay.classList.add('hidden');
+    init().catch(err => {
+      console.error('[parent] init error:', err);
+    });
+  }, { once: true });
+}

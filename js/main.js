@@ -11,13 +11,13 @@
 
 import { lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS } from './storage.js';
 import { renderSafeSleepContent } from './safe-sleep.js';
+import { showCompatWarnings } from './browser-compat.js';
 
 // ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
 
 const tapOverlay        = document.getElementById('tap-overlay');
-const compatModal       = document.getElementById('compat-modal');
 const homeScreen        = document.getElementById('home');
 const themeIcon         = document.getElementById('theme-icon');
 const darkModeToggle    = document.getElementById('dark-mode-toggle');
@@ -32,44 +32,20 @@ const settingsScreen    = document.getElementById('settings-screen');
 const settingsBack      = document.getElementById('settings-back');
 
 // ---------------------------------------------------------------------------
+// Browser compatibility check (TASK-045)
+// Run immediately at module load — before any user interaction or init().
+// ---------------------------------------------------------------------------
+
+const _compatResult = showCompatWarnings();
+
+// ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 
 function init() {
-  checkBrowserCompatibility();
   setupTheme();
   maybePromptDarkMode();
   homeScreen?.classList.remove('hidden');
-}
-
-// ---------------------------------------------------------------------------
-// Browser compatibility check (TASK-045)
-// ---------------------------------------------------------------------------
-
-function checkBrowserCompatibility() {
-  const ua = navigator.userAgent;
-  const isIosSafari = /iP(hone|ad|od)/.test(ua) && !/CriOS/.test(ua);
-
-  if (isIosSafari) {
-    // Block iOS Safari with a full-screen modal
-    if (compatModal) {
-      document.getElementById('compat-modal-message').textContent =
-        'This app requires Chrome to function. ' +
-        'Please open this page in Chrome on your iPhone or iPad.';
-      const urlEl = document.getElementById('compat-modal-url');
-      if (urlEl) urlEl.textContent = window.location.href;
-      compatModal.classList.remove('hidden');
-    }
-    // Do not proceed
-    return;
-  }
-
-  // Soft warning for other non-Chrome browsers
-  const isChrome = /Chrome/.test(ua) && !/Edg/.test(ua) && !/OPR/.test(ua);
-  if (!isChrome) {
-    console.warn('[main] Non-Chrome browser detected. App may not work as expected.');
-    // Soft banner shown in TASK-045
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +133,11 @@ settingsBack?.addEventListener('click', () => {
 // Tap-to-begin overlay (TASK-037)
 // ---------------------------------------------------------------------------
 
-tapOverlay?.addEventListener('click', () => {
-  tapOverlay.classList.add('hidden');
-  init();
-}, { once: true });
+// If the browser is blocked (iOS Safari), the compat modal is already visible
+// and the tap overlay has been hidden — do not wire up the tap-to-begin handler.
+if (_compatResult !== 'blocked') {
+  tapOverlay?.addEventListener('click', () => {
+    tapOverlay.classList.add('hidden');
+    init();
+  }, { once: true });
+}
