@@ -118,7 +118,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Build the baby monitor display UI. It should occupy the full screen and show one of three modes: soothing light effect, soothing music (screen dimmed), or blank/off. The mode is controlled either locally on the baby device (with minimal UI — a small settings icon or long-press interaction to avoid disturbing the baby) or remotely via the parent's control panel. The screen brightness should be kept low in soothing modes to avoid disturbing the baby. Display a small status indicator (connection status, battery) in a corner that fades out after a few seconds.
 
 ### TASK-016: Implement candle light soothing effect
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-015
 - **Description**: Implement a fullscreen canvas-based candle flicker animation. Use randomised flame shapes rendered with orange/yellow/red gradients. Add subtle, slow brightness variation to simulate natural candlelight. The animation should be computationally lightweight — use `requestAnimationFrame` with a low update rate (e.g. 24 fps) and simple geometry rather than heavy shaders. The warm, dimly lit output should be suitable for a darkened baby room.

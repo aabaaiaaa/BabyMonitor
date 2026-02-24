@@ -1199,21 +1199,200 @@ function _clearCanvas() {
   soothingCanvas.style.background = '#000';
 }
 
-/** Candle effect stub (TASK-016). */
+/**
+ * Candle light soothing effect (TASK-016).
+ *
+ * Renders a fullscreen animated candle scene: a wax pillar in the lower-centre
+ * of the screen with an organic flickering flame drawn using bezier curves and
+ * warm orange/yellow/red gradients. A very dim radial ambient glow simulates
+ * the candlelight softly illuminating a dark room.
+ *
+ * Design goals:
+ *  - Lightweight: 24 fps via requestAnimationFrame + timestamp throttle
+ *  - Organic feel: flame height, sway, and room brightness are driven by
+ *    overlapping sine waves at incommensurable frequencies (no true Perlin
+ *    noise needed at this scale)
+ *  - Battery-friendly: simple 2-D canvas geometry, no per-pixel operations
+ *  - Suitable for a dark nursery: background stays very dark (#090402)
+ */
 function _startCandleEffect() {
   if (!soothingCanvas) return;
   const ctx = soothingCanvas.getContext('2d');
-  // Canvas already sized by _resizeCanvas() called in startSoothingMode().
 
-  function drawFrame() {
-    // Placeholder: warm orange fill — full animated candle in TASK-016
-    const r = 180 + Math.round(Math.random() * 20);
-    const g = 80  + Math.round(Math.random() * 20);
-    ctx.fillStyle = `rgb(${r}, ${g}, 10)`;
-    ctx.fillRect(0, 0, soothingCanvas.width, soothingCanvas.height);
-    _animFrame = requestAnimationFrame(drawFrame);
+  const TARGET_FPS = 24;
+  const FRAME_MS   = 1000 / TARGET_FPS;
+  let   lastMs     = 0;
+
+  // Time accumulator advanced each rendered frame.
+  let t = 0;
+
+  /**
+   * Organic "noise" via summed sines at incommensurable frequencies.
+   * Returns a value in approximately [−1, 1].
+   * @param {number} base  Primary time value.
+   * @param {number} phase Per-oscillator phase offset so height/sway/brightness
+   *                       vary independently.
+   */
+  function organicNoise(base, phase) {
+    return (
+      Math.sin(base * 2.1 + phase        ) * 0.35 +
+      Math.sin(base * 3.7 + phase * 1.31 ) * 0.25 +
+      Math.sin(base * 7.3 + phase * 2.07 ) * 0.20 +
+      Math.sin(base * 0.5 + phase * 0.71 ) * 0.20
+    );
   }
-  drawFrame();
+
+  function drawFrame(timestamp) {
+    // Always update _animFrame first so startSoothingMode can cancel us.
+    _animFrame = requestAnimationFrame(drawFrame);
+
+    // FPS throttle — skip rendering but keep the loop alive.
+    if (timestamp - lastMs < FRAME_MS) return;
+    lastMs = timestamp;
+
+    const W = soothingCanvas.width;
+    const H = soothingCanvas.height;
+
+    // Advance time for oscillator input (controls animation speed).
+    t += 0.055;
+
+    // ---- Organic variation parameters --------------------------------------
+
+    // Flame height: ±12 % of nominal.
+    const heightN    = organicNoise(t, 0.0);
+    const heightMult = 0.90 + heightN * 0.12;
+
+    // Lateral sway: small fraction of body half-width.
+    const swayN  = organicNoise(t, 1.53);
+
+    // Room brightness: slow, separate oscillation.
+    const brightN = (organicNoise(t * 0.38, 2.91) + 1) * 0.5; // 0..1
+
+    // ---- Layout ------------------------------------------------------------
+
+    const cx      = W * 0.5;                          // candle centreline
+    const bodyW   = Math.max(8, Math.min(W * 0.035, 18)); // wax half-width (px)
+    const bodyH   = H * 0.12;                         // wax pillar height
+    const baseY   = H * 0.80;                         // bottom of wax body
+    const wickY   = baseY - bodyH;                    // top of wax / wick root
+
+    const nomFlameH = H * 0.20;                       // nominal flame height
+    const flameH    = nomFlameH * heightMult;
+    const flameW    = bodyW * 1.80;                   // half-width at flame base
+    const sway      = swayN * bodyW * 0.85;           // tip lateral offset (px)
+    const tipX      = cx + sway;
+    const tipY      = wickY - flameH;
+
+    // ---- 1. Background — near-black with very faint warm tint --------------
+    ctx.fillStyle = '#090402';
+    ctx.fillRect(0, 0, W, H);
+
+    // ---- 2. Room ambient glow — large, very dim radial gradient ------------
+    const glowCY  = wickY - flameH * 0.50;
+    const glowR   = Math.min(W, H) * (0.55 + brightN * 0.10);
+    const glowA   = 0.044 + brightN * 0.028;
+    const roomGrd = ctx.createRadialGradient(cx, glowCY, 0, cx, glowCY, glowR);
+    roomGrd.addColorStop(0,    `rgba(255, 150, 40, ${glowA})`);
+    roomGrd.addColorStop(0.40, `rgba(220,  90, 10, ${glowA * 0.50})`);
+    roomGrd.addColorStop(0.75, `rgba(160,  50,  0, ${glowA * 0.15})`);
+    roomGrd.addColorStop(1,    'rgba(0,0,0,0)');
+    ctx.fillStyle = roomGrd;
+    ctx.fillRect(0, 0, W, H);
+
+    // ---- 3. Candle body — gradient gives a subtle cylindrical feel ---------
+    const waxGrd = ctx.createLinearGradient(cx - bodyW, 0, cx + bodyW, 0);
+    waxGrd.addColorStop(0,    '#2a1508');
+    waxGrd.addColorStop(0.25, '#5a3015');
+    waxGrd.addColorStop(0.60, '#7a4820');
+    waxGrd.addColorStop(1,    '#3a1c0a');
+    ctx.fillStyle = waxGrd;
+    ctx.fillRect(cx - bodyW, wickY, bodyW * 2, bodyH);
+
+    // Top rim of wax (ellipse to suggest a 3-D top surface).
+    ctx.beginPath();
+    ctx.ellipse(cx, wickY, bodyW, bodyW * 0.35, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#9a6835';
+    ctx.fill();
+
+    // ---- 4. Wick -----------------------------------------------------------
+    ctx.save();
+    ctx.strokeStyle = '#150800';
+    ctx.lineWidth   = 1.5;
+    ctx.lineCap     = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, wickY);
+    ctx.lineTo(cx + sway * 0.10, wickY - bodyW * 0.55);
+    ctx.stroke();
+    ctx.restore();
+
+    // ---- 5. Outer flame glow — soft elliptical blob around the flame -------
+    const blobCY  = wickY - flameH * 0.45;
+    const blobR   = flameW * 3.5;
+    const blobA   = 0.22 + brightN * 0.08;
+    const blobGrd = ctx.createRadialGradient(cx, blobCY, 0, cx, blobCY, blobR);
+    blobGrd.addColorStop(0,   `rgba(255, 140,  0, ${blobA})`);
+    blobGrd.addColorStop(0.3, `rgba(255,  80,  0, ${blobA * 0.45})`);
+    blobGrd.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = blobGrd;
+    ctx.beginPath();
+    ctx.ellipse(cx, blobCY, blobR, blobR * 1.30, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- 6. Flame outer shape — orange→red bezier tear-drop ----------------
+    const outerGrd = ctx.createLinearGradient(cx, tipY, cx, wickY);
+    outerGrd.addColorStop(0,    'rgba(255, 220, 100, 0.92)');
+    outerGrd.addColorStop(0.30, 'rgba(255, 120,  20, 0.95)');
+    outerGrd.addColorStop(0.65, 'rgba(200,  40,   0, 0.97)');
+    outerGrd.addColorStop(1,    'rgba(120,  20,   0, 0.85)');
+
+    const midY = wickY - flameH * 0.50;
+    const lX   = cx - flameW;
+    const rX   = cx + flameW;
+
+    ctx.beginPath();
+    ctx.moveTo(cx - bodyW * 0.50, wickY);
+    // Left arc from base to tip.
+    ctx.bezierCurveTo(
+      lX - flameW * 0.25,   midY + flameH * 0.25,
+      tipX - flameW * 0.55, midY - flameH * 0.05,
+      tipX, tipY,
+    );
+    // Right arc from tip back to base (slight asymmetry via heightN).
+    ctx.bezierCurveTo(
+      tipX + flameW * 0.55 * (1 + heightN * 0.12), midY - flameH * 0.05,
+      rX   + flameW * 0.25 * (1 + heightN * 0.08), midY + flameH * 0.25,
+      cx + bodyW * 0.50, wickY,
+    );
+    ctx.closePath();
+    ctx.fillStyle = outerGrd;
+    ctx.fill();
+
+    // ---- 7. Flame inner core — bright yellow-white hotspot -----------------
+    const coreH   = flameH * 0.50;
+    const coreW   = flameW * 0.42;
+    const coreTY  = wickY - coreH;
+    const coreGrd = ctx.createLinearGradient(cx, coreTY, cx, wickY);
+    coreGrd.addColorStop(0,    'rgba(255, 255, 230, 0.88)');
+    coreGrd.addColorStop(0.45, 'rgba(255, 235,  80, 0.82)');
+    coreGrd.addColorStop(1,    'rgba(255, 160,  20, 0.40)');
+
+    ctx.beginPath();
+    ctx.moveTo(cx + sway * 0.35, coreTY);
+    ctx.bezierCurveTo(
+      cx - coreW,        wickY - coreH * 0.45,
+      cx - coreW * 0.50, wickY - coreH * 0.05,
+      cx, wickY,
+    );
+    ctx.bezierCurveTo(
+      cx + coreW * 0.50, wickY - coreH * 0.05,
+      cx + coreW,        wickY - coreH * 0.45,
+      cx + sway * 0.35, coreTY,
+    );
+    ctx.fillStyle = coreGrd;
+    ctx.fill();
+  }
+
+  _animFrame = requestAnimationFrame(drawFrame);
 }
 
 /** Water effect stub (TASK-017). */
