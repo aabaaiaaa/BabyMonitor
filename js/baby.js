@@ -27,6 +27,7 @@
 import {
   lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS,
   getOrCreateDeviceId,
+  saveAudioFile, getAudioFile, deleteAudioFile,
 } from './storage.js';
 import {
   initPeer, destroyPeer,
@@ -96,6 +97,49 @@ let wakeLock = null;
 let _batteryAlertSent = false;
 
 // ---------------------------------------------------------------------------
+// File transfer state (TASK-013)
+// ---------------------------------------------------------------------------
+
+/**
+ * In-progress incoming file transfer.
+ * Chunks arrive as base64 strings and are held in memory until FILE_COMPLETE.
+ * @type {{ id: string, name: string, mimeType: string, totalChunks: number, received: number, chunks: string[] } | null}
+ */
+let _incomingTransfer = null;
+
+/**
+ * IndexedDB ID of the most recently received and stored audio file.
+ * Used when a FILE_PLAY command arrives.
+ * @type {string|null}
+ */
+let _receivedFileDbId = null;
+
+// ---------------------------------------------------------------------------
+// Audio playback state (TASK-013)
+// ---------------------------------------------------------------------------
+
+/** @type {AudioContext|null} Dedicated AudioContext for transferred file playback. */
+let _audioCtx   = null;
+
+/** @type {GainNode|null} Master gain node — volume + ducking hookup point for TASK-038. */
+let _audioGain  = null;
+
+/** @type {AudioBuffer|null} Decoded buffer for the current received audio file. */
+let _audioBuffer = null;
+
+/** @type {AudioBufferSourceNode|null} The active playback source node (null if stopped). */
+let _audioSource = null;
+
+/** @type {boolean} True while audio is actively playing (not paused or stopped). */
+let _audioPlaying = false;
+
+/** @type {number} audioCtx.currentTime at which the last play/resume started. */
+let _audioStart   = 0;
+
+/** @type {number} Playback offset (seconds) saved when the audio is paused. */
+let _audioOffset  = 0;
+
+// ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
 
@@ -137,6 +181,11 @@ const settingsCloseBtn    = document.getElementById('baby-settings-close');
 const reconnectStatus     = document.getElementById('reconnect-status');
 const rePairBtn           = document.getElementById('btn-re-pair');
 const goHomeBtn           = document.getElementById('btn-go-home');
+
+// File transfer progress overlay (TASK-013)
+const babyTransferStatus  = document.getElementById('baby-transfer-status');
+const babyTransferText    = document.getElementById('baby-transfer-text');
+const babyTransferBar     = document.getElementById('baby-transfer-bar');
 
 // ---------------------------------------------------------------------------
 // Browser compatibility check (TASK-045)
@@ -826,6 +875,221 @@ function sendStateSnapshot() {
 }
 
 // ---------------------------------------------------------------------------
+// File transfer helpers (TASK-013)
+// ---------------------------------------------------------------------------
+
+/**
+ * Update the baby-side transfer progress overlay.
+ * @param {number} received  — chunks received so far
+ * @param {number} total     — expected total chunks
+ */
+function _updateTransferProgress(received, total) {
+  const pct = total > 0 ? Math.round((received / total) * 100) : 0;
+  if (babyTransferBar) babyTransferBar.value = pct;
+  if (babyTransferText) {
+    babyTransferText.textContent = total > 0
+      ? `Receiving audio… ${pct}%`
+      : 'Receiving audio…';
+  }
+}
+
+/**
+ * Assemble all received chunks into a Blob, save to IndexedDB, and send a
+ * FILE_ACK to the parent.  Called when FILE_COMPLETE is received.
+ */
+async function _finaliseTransfer() {
+  const transfer = _incomingTransfer;
+  _incomingTransfer = null;
+
+  if (!transfer) return;
+
+  // Verify all chunks were received
+  for (let i = 0; i < transfer.totalChunks; i++) {
+    if (!transfer.chunks[i]) {
+      console.warn('[baby] Missing chunk', i, '— discarding incomplete transfer');
+      if (babyTransferStatus) babyTransferStatus.classList.add('hidden');
+      _notifyTransferFailed(transfer.id, `Missing chunk ${i}`);
+      return;
+    }
+  }
+
+  try {
+    // Decode all base64 chunks and concatenate into a single Uint8Array
+    const byteArrays = transfer.chunks.map(b64 => {
+      const binary = atob(b64);
+      const arr = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+      return arr;
+    });
+
+    let totalBytes = 0;
+    for (const a of byteArrays) totalBytes += a.byteLength;
+    const combined = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const a of byteArrays) { combined.set(a, offset); offset += a.byteLength; }
+
+    const blob = new Blob([combined], { type: transfer.mimeType });
+
+    // Persist to IndexedDB
+    const dbId = await saveAudioFile({
+      name:      transfer.name,
+      blob,
+      size:      combined.byteLength,
+      duration:  0, // decoded lazily during playback
+      type:      'received',
+      dateAdded: Date.now(),
+    });
+
+    _receivedFileDbId = dbId;
+    _audioBuffer = null; // Will be decoded on first FILE_PLAY
+
+    console.log('[baby] File transfer complete, saved to IndexedDB:', transfer.name, `(${combined.byteLength} bytes)`);
+
+    // Acknowledge receipt to the parent
+    if (activeConnection?.dataChannel) {
+      sendMessage(activeConnection.dataChannel, MSG.FILE_ACK, { id: transfer.id });
+    }
+  } catch (err) {
+    console.error('[baby] Failed to assemble/save received file:', err);
+    _notifyTransferFailed(transfer.id, err.message);
+  } finally {
+    if (babyTransferStatus) babyTransferStatus.classList.add('hidden');
+  }
+}
+
+/**
+ * Notify the parent that the transfer failed.
+ * @param {string} id
+ * @param {string} reason
+ */
+function _notifyTransferFailed(id, reason) {
+  if (activeConnection?.dataChannel) {
+    try {
+      sendMessage(activeConnection.dataChannel, MSG.FILE_TRANSFER_FAILED, { id, reason });
+    } catch (_) { /* ignore if channel closed */ }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Audio playback (TASK-013)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure the shared AudioContext exists and is resumed.
+ * Creates it on first call (after the user gesture from tap-to-begin).
+ */
+async function _ensureAudioCtx() {
+  if (!_audioCtx) {
+    _audioCtx = new AudioContext();
+    _audioGain = _audioCtx.createGain();
+    // Apply current music volume (0–100 → 0–1); TASK-038 ducking hooks in here.
+    _audioGain.gain.value = state.musicVolume / 100;
+    _audioGain.connect(_audioCtx.destination);
+  }
+  if (_audioCtx.state === 'suspended') {
+    await _audioCtx.resume();
+  }
+}
+
+/**
+ * Load, decode, and start playing the most recently received audio file.
+ * If playback was paused, resumes from the saved offset instead.
+ */
+async function _playReceivedFile() {
+  if (!_receivedFileDbId) {
+    console.warn('[baby] No received file available to play');
+    return;
+  }
+
+  // If we have a paused position, resume rather than restarting
+  if (!_audioPlaying && _audioBuffer && _audioOffset > 0) {
+    _resumePlayback();
+    return;
+  }
+
+  _stopPlayback();
+
+  try {
+    await _ensureAudioCtx();
+
+    if (!_audioBuffer) {
+      const record = await getAudioFile(_receivedFileDbId);
+      if (!record?.blob) {
+        console.warn('[baby] Received file not found in IndexedDB');
+        return;
+      }
+      const arrayBuffer = await record.blob.arrayBuffer();
+      _audioBuffer = await _audioCtx.decodeAudioData(arrayBuffer);
+    }
+
+    _createAndStartSource(0);
+  } catch (err) {
+    console.error('[baby] Failed to play received file:', err);
+  }
+}
+
+/**
+ * Create an AudioBufferSourceNode and begin playback from `offset` seconds.
+ * @param {number} offset — seconds into the buffer to start from
+ */
+function _createAndStartSource(offset) {
+  if (!_audioCtx || !_audioBuffer || !_audioGain) return;
+
+  _audioSource = _audioCtx.createBufferSource();
+  _audioSource.buffer = _audioBuffer;
+  _audioSource.connect(_audioGain);
+  _audioSource.start(0, offset);
+  _audioStart   = _audioCtx.currentTime - offset;
+  _audioPlaying = true;
+  _audioOffset  = 0;
+
+  _audioSource.addEventListener('ended', () => {
+    // Natural end of audio (not a manual stop)
+    if (_audioPlaying) {
+      _audioSource  = null;
+      _audioPlaying = false;
+      _audioOffset  = 0;
+    }
+  });
+}
+
+/**
+ * Pause playback, saving the current position so `_resumePlayback` can
+ * continue from the same point.
+ */
+function _pausePlayback() {
+  if (!_audioPlaying || !_audioSource || !_audioCtx) return;
+  // Record how far through the buffer we were
+  _audioOffset  = _audioCtx.currentTime - _audioStart;
+  _audioPlaying = false;
+  try { _audioSource.stop(); } catch (_) { /* ignore */ }
+  _audioSource = null;
+}
+
+/**
+ * Resume playback from the position saved by `_pausePlayback`.
+ */
+function _resumePlayback() {
+  if (_audioPlaying || !_audioBuffer) return;
+  _ensureAudioCtx().then(() => _createAndStartSource(_audioOffset)).catch(err => {
+    console.error('[baby] Failed to resume audio:', err);
+  });
+}
+
+/**
+ * Stop playback and reset the playback position to the beginning.
+ */
+function _stopPlayback() {
+  if (_audioSource) {
+    _audioPlaying = false;
+    try { _audioSource.stop(); } catch (_) { /* ignore */ }
+    _audioSource = null;
+  }
+  _audioPlaying = false;
+  _audioOffset  = 0;
+}
+
+// ---------------------------------------------------------------------------
 // Incoming data channel messages (TASK-009)
 // ---------------------------------------------------------------------------
 
@@ -842,7 +1106,15 @@ function handleDataMessage(msg) {
 
     case MSG.SET_VOLUME:
       state.musicVolume = msg.value;
-      // Apply to GainNode in TASK-019
+      // Apply to the file-playback GainNode if active (TASK-013)
+      if (_audioGain && _audioCtx) {
+        _audioGain.gain.setTargetAtTime(
+          state.musicVolume / 100,
+          _audioCtx.currentTime,
+          0.05, // 50 ms smoothing
+        );
+      }
+      // Also applied to bundled tracks GainNode in TASK-019
       sendStateSnapshot();
       break;
 
@@ -889,21 +1161,84 @@ function handleDataMessage(msg) {
       // Stop parent audio in TASK-012
       break;
 
-    case MSG.FILE_META:
-      // TASK-013 — parent is initiating an audio file transfer to baby
-      // Full implementation in TASK-013: prepare IndexedDB record and ACK
+    case MSG.FILE_META: {
+      // Parent is starting a file transfer — prepare receive buffer (TASK-013)
+      const { id, name, mimeType, totalChunks } = msg.value ?? {};
+      if (!id || !totalChunks) break;
+
+      // Discard any previous in-progress transfer
+      _incomingTransfer = null;
+
+      // Delete old received file from IndexedDB to reclaim storage space
+      if (_receivedFileDbId) {
+        deleteAudioFile(_receivedFileDbId).catch(e =>
+          console.warn('[baby] Failed to delete old audio file:', e));
+        _receivedFileDbId = null;
+        _audioBuffer = null; // Decoded buffer is now stale
+      }
+
+      _incomingTransfer = {
+        id,
+        name:        name ?? 'audio',
+        mimeType:    mimeType ?? 'audio/mpeg',
+        totalChunks,
+        received:    0,
+        chunks:      new Array(totalChunks),
+      };
+
+      // Show the transfer progress overlay
+      _updateTransferProgress(0, totalChunks);
+      if (babyTransferStatus) babyTransferStatus.classList.remove('hidden');
+      console.log('[baby] File transfer started:', name, `(${totalChunks} chunks)`);
+      break;
+    }
+
+    case MSG.FILE_CHUNK: {
+      // Accumulate an incoming chunk (TASK-013)
+      const { id, seq, data } = msg.value ?? {};
+      if (!_incomingTransfer || _incomingTransfer.id !== id) break;
+      if (seq == null || typeof data !== 'string') break;
+
+      if (!_incomingTransfer.chunks[seq]) {
+        _incomingTransfer.chunks[seq] = data;
+        _incomingTransfer.received++;
+      }
+      _updateTransferProgress(_incomingTransfer.received, _incomingTransfer.totalChunks);
+      break;
+    }
+
+    case MSG.FILE_COMPLETE: {
+      // All chunks received — assemble blob and store in IndexedDB (TASK-013)
+      const { id } = msg.value ?? {};
+      if (!_incomingTransfer || _incomingTransfer.id !== id) break;
+      _finaliseTransfer(); // async; errors are logged internally
+      break;
+    }
+
+    case MSG.FILE_ABORT: {
+      // Parent aborted the transfer — discard partial data (TASK-013)
+      if (_incomingTransfer) {
+        console.log('[baby] File transfer aborted by parent:', _incomingTransfer.id);
+        _incomingTransfer = null;
+        if (babyTransferStatus) babyTransferStatus.classList.add('hidden');
+      }
+      break;
+    }
+
+    case MSG.FILE_PLAY:
+      // Parent commands the baby to play the received file (TASK-013)
+      _playReceivedFile();
       break;
 
-    case MSG.FILE_CHUNK:
-      // TASK-013 — append incoming chunk to the in-progress file transfer
+    case MSG.FILE_PAUSE:
+      // Parent commands pause/resume toggle (TASK-013)
+      if (_audioPlaying) _pausePlayback();
+      else _resumePlayback();
       break;
 
-    case MSG.FILE_COMPLETE:
-      // TASK-013 — all chunks received; finalise and store file in IndexedDB
-      break;
-
-    case MSG.FILE_ABORT:
-      // TASK-013 — parent aborted the file transfer; discard any partial data
+    case MSG.FILE_STOP:
+      // Parent commands stop + reset (TASK-013)
+      _stopPlayback();
       break;
 
     case MSG.ID_POOL:
@@ -1002,6 +1337,18 @@ function handleDisconnect(reason) {
   _peerStatusUnsub = null;
 
   stopScanner();
+
+  // Discard any partially received file transfer (TASK-013).
+  // The connection is gone so we cannot notify the parent — the parent handles
+  // this on its own side by detecting the disconnect state.
+  if (_incomingTransfer) {
+    console.log('[baby] Discarding partial file transfer due to disconnect:', _incomingTransfer.id);
+    _incomingTransfer = null;
+    if (babyTransferStatus) babyTransferStatus.classList.add('hidden');
+  }
+
+  // Stop any ongoing audio playback (TASK-013)
+  _stopPlayback();
 
   // Close the connection cleanly (closes data channel / peer connection)
   try { activeConnection?.close?.(); } catch (_) { /* ignore */ }

@@ -260,6 +260,15 @@
             <progress id="cp-transfer-bar" max="100" value="0" aria-label="Transfer progress"></progress>
             <span id="cp-transfer-pct">0%</span>
           </div>
+          <!-- Playback controls: shown after a successful transfer -->
+          <div class="file-playback hidden" id="cp-file-playback">
+            <p class="file-playback__name" id="cp-file-name" aria-label="Transferred file name"></p>
+            <div class="file-playback__btns" role="group" aria-label="Transferred audio playback">
+              <button id="cp-file-play"  class="action-btn" aria-label="Play transferred audio">▶ Play</button>
+              <button id="cp-file-pause" class="action-btn" disabled aria-label="Pause">⏸ Pause</button>
+              <button id="cp-file-stop"  class="action-btn" disabled aria-label="Stop">⏹ Stop</button>
+            </div>
+          </div>
         </div>
       </section>
 

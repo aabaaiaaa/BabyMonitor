@@ -84,6 +84,26 @@ let wakeLock = null;
 let _peerStatusUnsub = null;
 
 // ---------------------------------------------------------------------------
+// File transfer state (TASK-013)
+// ---------------------------------------------------------------------------
+
+/**
+ * Active file transfer. Only one at a time across all connected monitors.
+ * @type {{ id: string, deviceId: string, totalChunks: number, sentChunks: number } | null}
+ */
+let _activeTransfer = null;
+
+/**
+ * Per-device record of the last successfully transferred file, keyed by deviceId.
+ * Used to restore playback controls when the control panel is reopened.
+ * @type {Map<string, { name: string }>}
+ */
+const _lastTransferredFile = new Map();
+
+/** Chunk size for file transfer: 16 KB (safe for all WebRTC implementations). */
+const FILE_CHUNK_SIZE = 16 * 1024;
+
+// ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
 
@@ -132,6 +152,13 @@ const cpNoiseThreshold    = document.getElementById('cp-noise-threshold');
 const cpAudioFile         = document.getElementById('cp-audio-file');
 const cpSendAudio         = document.getElementById('cp-send-audio');
 const cpTransferProgress  = document.getElementById('cp-transfer-progress');
+const cpTransferBar       = document.getElementById('cp-transfer-bar');
+const cpTransferPct       = document.getElementById('cp-transfer-pct');
+const cpFilePlayback      = document.getElementById('cp-file-playback');
+const cpFileName          = document.getElementById('cp-file-name');
+const cpFilePlay          = document.getElementById('cp-file-play');
+const cpFilePause         = document.getElementById('cp-file-pause');
+const cpFileStop          = document.getElementById('cp-file-stop');
 const cpDisconnect        = document.getElementById('cp-disconnect');
 
 // ---------------------------------------------------------------------------
@@ -570,6 +597,16 @@ function removeMonitor(deviceId) {
   const entry = monitors.get(deviceId);
   if (!entry) return;
 
+  // Abort any active file transfer to this device (TASK-013).
+  // Setting _activeTransfer to null causes the send loop to exit cleanly on
+  // its next iteration; we also re-enable the file picker / send button here
+  // because the async sender loop may not get a chance to do so.
+  if (_activeTransfer?.deviceId === deviceId) {
+    _activeTransfer = null;
+    _setTransferUiActive(false);
+    _clearTransferUi();
+  }
+
   // Close the WebRTC connection cleanly (closes data channel / peer connection)
   try { entry.conn?.close?.(); } catch (_) { /* ignore */ }
 
@@ -750,6 +787,23 @@ function openControlPanel(deviceId) {
   }
   entry.audioCtx?.resume().catch(() => {});
 
+  // Restore file playback controls if a file was previously transferred to this device (TASK-013).
+  const tf = _lastTransferredFile.get(deviceId);
+  if (tf && cpFilePlayback) {
+    cpFilePlayback.classList.remove('hidden');
+    if (cpFileName)  cpFileName.textContent = tf.name;
+    if (cpFilePlay)  cpFilePlay.disabled  = false;
+    if (cpFilePause) cpFilePause.disabled = true;
+    if (cpFileStop)  cpFileStop.disabled  = true;
+  } else if (cpFilePlayback) {
+    cpFilePlayback.classList.add('hidden');
+  }
+
+  // Also reset the file input and hide the progress bar when switching device context.
+  if (cpAudioFile)        cpAudioFile.value   = '';
+  if (cpSendAudio)        cpSendAudio.disabled = true;
+  if (cpTransferProgress) cpTransferProgress.classList.add('hidden');
+
   controlPanel?.classList.remove('hidden');
 }
 
@@ -859,20 +913,174 @@ cpNoiseThreshold?.addEventListener('change', () => {
   }
 });
 
-// Audio file picker
+// Audio file picker — enable send button when a valid file is selected (TASK-013)
 cpAudioFile?.addEventListener('change', () => {
-  if (cpAudioFile.files?.length) {
-    if (cpSendAudio) cpSendAudio.disabled = false;
+  // Only enable when no transfer is already in progress and a file is selected
+  if (cpSendAudio) {
+    cpSendAudio.disabled = !cpAudioFile.files?.length || !!_activeTransfer;
   }
 });
 
-// Send audio (TASK-013) — full implementation in TASK-013
+// Send audio file to baby device (TASK-013) — chunked base64 transfer over data channel
 cpSendAudio?.addEventListener('click', async () => {
+  if (_activeTransfer) return; // Guard: only one transfer at a time
   const conn = getActiveConn();
   if (!conn?.dataChannel || !cpAudioFile?.files?.length) return;
-  // Placeholder — chunked binary transfer implemented in TASK-013
-  console.log('[parent] Audio file transfer not yet implemented (TASK-013)');
+
+  const file        = cpAudioFile.files[0];
+  const transferId  = crypto.randomUUID();
+  const totalChunks = Math.ceil(file.size / FILE_CHUNK_SIZE);
+  // Capture the target device at click time so later changes to controlPanelDeviceId
+  // (e.g. the user closes and reopens the panel) don't corrupt the transfer record.
+  const targetDeviceId = controlPanelDeviceId;
+
+  _activeTransfer = { id: transferId, deviceId: targetDeviceId, totalChunks, sentChunks: 0 };
+
+  // Disable the file picker and send button for the duration of the transfer
+  _setTransferUiActive(true);
+
+  try {
+    // Step 1: send file metadata so the baby can prepare its receive buffer
+    sendMessage(conn.dataChannel, MSG.FILE_META, {
+      id:          transferId,
+      name:        file.name,
+      size:        file.size,
+      mimeType:    file.type || 'audio/mpeg',
+      totalChunks,
+    });
+
+    // Step 2: read the file as a single ArrayBuffer then slice into chunks
+    const buffer = await file.arrayBuffer();
+    const bytes  = new Uint8Array(buffer);
+
+    for (let seq = 0; seq < totalChunks; seq++) {
+      // Abort if the connection dropped and removeMonitor() cleared _activeTransfer
+      if (!_activeTransfer || _activeTransfer.id !== transferId) break;
+
+      // Slice chunk and base64-encode it for JSON transport
+      const start  = seq * FILE_CHUNK_SIZE;
+      const end    = Math.min(start + FILE_CHUNK_SIZE, bytes.byteLength);
+      const chunk  = bytes.subarray(start, end);
+      let   binary = '';
+      for (let i = 0; i < chunk.length; i++) binary += String.fromCharCode(chunk[i]);
+      const data = btoa(binary);
+
+      sendMessage(conn.dataChannel, MSG.FILE_CHUNK, { id: transferId, seq, data });
+
+      // Update progress
+      _activeTransfer.sentChunks = seq + 1;
+      _updateTransferProgress(seq + 1, totalChunks);
+
+      // Yield to event loop every 10 chunks to keep the page responsive
+      if (seq % 10 === 9) await new Promise(r => setTimeout(r, 0));
+    }
+
+    // Step 3: send completion marker (only if not aborted mid-transfer)
+    if (_activeTransfer?.id === transferId) {
+      sendMessage(conn.dataChannel, MSG.FILE_COMPLETE, { id: transferId });
+      _lastTransferredFile.set(targetDeviceId, { name: file.name });
+      _activeTransfer = null;
+      _setTransferUiActive(false);
+      _showFilePlaybackControls(targetDeviceId, file.name);
+    }
+  } catch (err) {
+    console.error('[parent] File transfer error:', err);
+    if (_activeTransfer?.id === transferId) {
+      // Try to notify the baby; ignore errors if the channel is already closed
+      try {
+        sendMessage(conn.dataChannel, MSG.FILE_ABORT, { id: transferId, reason: err.message });
+      } catch (_) { /* channel may already be closed */ }
+      _activeTransfer = null;
+      _setTransferUiActive(false);
+      _clearTransferUi();
+    }
+  }
 });
+
+// Transferred audio playback controls (TASK-013) — send commands to baby device
+cpFilePlay?.addEventListener('click', () => {
+  const conn = getActiveConn();
+  if (!conn?.dataChannel) return;
+  sendMessage(conn.dataChannel, MSG.FILE_PLAY);
+  if (cpFilePlay)  cpFilePlay.disabled  = true;
+  if (cpFilePause) cpFilePause.disabled = false;
+  if (cpFileStop)  cpFileStop.disabled  = false;
+});
+
+cpFilePause?.addEventListener('click', () => {
+  const conn = getActiveConn();
+  if (!conn?.dataChannel) return;
+  sendMessage(conn.dataChannel, MSG.FILE_PAUSE);
+  if (cpFilePlay)  cpFilePlay.disabled  = false;
+  if (cpFilePause) cpFilePause.disabled = true;
+  // Stop remains enabled so the user can cancel from the paused state
+});
+
+cpFileStop?.addEventListener('click', () => {
+  const conn = getActiveConn();
+  if (!conn?.dataChannel) return;
+  sendMessage(conn.dataChannel, MSG.FILE_STOP);
+  if (cpFilePlay)  cpFilePlay.disabled  = false;
+  if (cpFilePause) cpFilePause.disabled = true;
+  if (cpFileStop)  cpFileStop.disabled  = true;
+});
+
+// ---------------------------------------------------------------------------
+// File transfer helpers (TASK-013)
+// ---------------------------------------------------------------------------
+
+/**
+ * Enable or disable the file picker and send button during a transfer.
+ * When `active` is true the controls are disabled and the progress bar is shown.
+ * @param {boolean} active
+ */
+function _setTransferUiActive(active) {
+  if (cpAudioFile) cpAudioFile.disabled = active;
+  if (cpSendAudio) cpSendAudio.disabled = active;
+  if (active) {
+    cpTransferProgress?.classList.remove('hidden');
+    if (cpTransferBar) cpTransferBar.value = 0;
+    if (cpTransferPct) cpTransferPct.textContent = '0%';
+  }
+}
+
+/**
+ * Update the transfer progress bar.
+ * @param {number} sent   — chunks sent so far
+ * @param {number} total  — total chunks
+ */
+function _updateTransferProgress(sent, total) {
+  const pct = Math.round((sent / total) * 100);
+  if (cpTransferBar) cpTransferBar.value = pct;
+  if (cpTransferPct) cpTransferPct.textContent = `${pct}%`;
+}
+
+/**
+ * Hide the transfer progress bar and reset its value.
+ */
+function _clearTransferUi() {
+  cpTransferProgress?.classList.add('hidden');
+  if (cpTransferBar) cpTransferBar.value = 0;
+  if (cpTransferPct) cpTransferPct.textContent = '0%';
+}
+
+/**
+ * Show the playback controls section after a successful transfer.
+ * Only shows if the control panel is currently open for `deviceId`.
+ * @param {string} deviceId
+ * @param {string} fileName
+ */
+function _showFilePlaybackControls(deviceId, fileName) {
+  if (!cpFilePlayback) return;
+  // Only update the UI if this device's control panel is currently open
+  if (controlPanelDeviceId !== deviceId) return;
+  cpFilePlayback.classList.remove('hidden');
+  if (cpFileName)  cpFileName.textContent = fileName;
+  if (cpFilePlay)  cpFilePlay.disabled  = false;
+  if (cpFilePause) cpFilePause.disabled = true;
+  if (cpFileStop)  cpFileStop.disabled  = true;
+  _clearTransferUi();
+}
 
 // Disconnect
 cpDisconnect?.addEventListener('click', () => {
@@ -957,6 +1165,24 @@ function handleDataMessage(deviceId, msg) {
         if (profile) {
           saveDeviceProfile({ ...profile, backupPoolJson: JSON.stringify(msg.value ?? []) });
         }
+      }
+      break;
+    }
+
+    case MSG.FILE_ACK: {
+      // Baby confirmed it received and stored the complete file (TASK-013).
+      console.log('[parent] Baby acknowledged file receipt:', msg.value?.id);
+      break;
+    }
+
+    case MSG.FILE_TRANSFER_FAILED: {
+      // Baby reported a transfer failure (e.g. storage error, TASK-013).
+      const { id, reason } = msg.value ?? {};
+      console.error('[parent] Baby reported file transfer failure:', id, reason);
+      if (_activeTransfer?.id === id) {
+        _activeTransfer = null;
+        _setTransferUiActive(false);
+        _clearTransferUi();
       }
       break;
     }

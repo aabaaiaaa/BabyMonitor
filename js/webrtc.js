@@ -669,11 +669,20 @@ export const MSG = {
   BATTERY_LEVEL:      'batteryLevel',  // value: { level, charging }
   CONN_STATUS:        'connStatus',    // value: ConnState
 
-  // File transfer chunks (TASK-013)
-  FILE_META:          'fileMeta',      // value: { id, name, size, mimeType }
-  FILE_CHUNK:         'fileChunk',     // value: { id, seq, data: ArrayBuffer }
-  FILE_COMPLETE:      'fileComplete',  // value: { id }
-  FILE_ABORT:         'fileAbort',     // value: { id, reason }
+  // File transfer (TASK-013) — parent → baby
+  FILE_META:             'fileMeta',           // value: { id, name, size, mimeType, totalChunks }
+  FILE_CHUNK:            'fileChunk',          // value: { id, seq, data: base64 string }
+  FILE_COMPLETE:         'fileComplete',       // value: { id }
+  FILE_ABORT:            'fileAbort',          // value: { id, reason }
+
+  // File transfer acknowledgement — baby → parent
+  FILE_ACK:              'fileAck',            // value: { id } — baby confirms receipt
+  FILE_TRANSFER_FAILED:  'fileTransferFailed', // value: { id, reason } — baby reports failure
+
+  // File playback commands — parent → baby (TASK-013)
+  FILE_PLAY:             'filePlay',           // (no value) — play / resume
+  FILE_PAUSE:            'filePause',          // (no value) — pause
+  FILE_STOP:             'fileStop',           // (no value) — stop + reset
 
   // PeerJS backup ID pool exchange (TASK-061)
   ID_POOL:            'idPool',        // value: string[] (backup peer IDs)

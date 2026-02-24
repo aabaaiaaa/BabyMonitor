@@ -221,6 +221,36 @@ body.baby-screen .pairing-step__desc {
 }
 
 /* --------------------------------------------------------------------------
+   File transfer progress overlay (TASK-013)
+   Bottom-centre; shown only during active incoming transfer.
+   -------------------------------------------------------------------------- */
+.baby-transfer-status {
+  position: fixed;
+  bottom: max(var(--space-lg), env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-lg);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  max-width: 80vw;
+  backdrop-filter: blur(4px);
+}
+
+.baby-transfer-status progress {
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  accent-color: var(--color-primary);
+}
+
+/* --------------------------------------------------------------------------
    Responsive overrides for baby view
    -------------------------------------------------------------------------- */
 @media (min-width: 768px) {

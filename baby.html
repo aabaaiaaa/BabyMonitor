@@ -131,6 +131,14 @@
       <span id="baby-battery" class="status-battery" title="Battery level" aria-label="Battery level"></span>
     </div>
 
+    <!-- File transfer progress overlay (TASK-013): shown while receiving an audio file -->
+    <div id="baby-transfer-status" class="baby-transfer-status hidden"
+         aria-live="polite" aria-atomic="true">
+      <span id="baby-transfer-text">Receiving audio…</span>
+      <progress id="baby-transfer-bar" max="100" value="0"
+                aria-label="File transfer progress"></progress>
+    </div>
+
     <!-- Touch lock hint: shown briefly on single tap when locked (TASK-039) -->
     <div id="touch-lock-hint" class="touch-lock-hint hidden" aria-live="assertive">
       Triple-tap to unlock
