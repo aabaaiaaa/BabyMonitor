@@ -32,10 +32,11 @@ import {
 } from './storage.js';
 import { renderSafeSleepContent } from './safe-sleep.js';
 import {
-  initPeer, getPeer,
+  initPeer, destroyPeer,
   babyCallParent, parentListenPeerJs,
   offlineParentReceiveOffer,
   sendMessage, MSG,
+  onPeerStatus, PEER_ERROR,
 } from './webrtc.js';
 import {
   renderQR, renderQRGrid,
@@ -76,6 +77,9 @@ let controlPanelDeviceId = null;
 
 /** @type {WakeLockSentinel|null} */
 let wakeLock = null;
+
+/** @type {Function|null} Unsubscribe function for the current peer status listener */
+let _peerStatusUnsub = null;
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -256,7 +260,31 @@ async function startPeerJsPairing() {
   pairingMethodStep?.classList.add('hidden');
   pairingPeerjsStep?.classList.remove('hidden');
 
+  // Remove any leftover fallback button from a previous attempt
+  pairingPeerjsStep?.querySelector('.peerjs-fallback-btn')?.remove();
+
   if (peerjsScanStatus) peerjsScanStatus.textContent = 'Connecting to pairing server…';
+
+  // Unsubscribe any previous status listener to prevent duplicates
+  _peerStatusUnsub?.();
+
+  // Register a status listener that drives the pairing UI in real time.
+  _peerStatusUnsub = onPeerStatus((status, detail) => {
+    // Only update UI while the PeerJS pairing step is visible
+    if (pairingPeerjsStep?.classList.contains('hidden')) return;
+
+    if (status === 'disconnected') {
+      if (peerjsScanStatus) peerjsScanStatus.textContent = 'Reconnecting to pairing server…';
+    } else if (status === 'error') {
+      const msg = detail?.message ?? 'PeerJS connection error. Try Offline QR pairing.';
+      if (peerjsScanStatus) peerjsScanStatus.textContent = msg;
+
+      // Offer a one-tap fallback to Offline QR when the server is unreachable
+      if (detail?.serverUnavailable || detail?.type === PEER_ERROR.LIBRARY_UNAVAILABLE) {
+        _showPeerjsOfflineFallback();
+      }
+    }
+  });
 
   try {
     const peerjsServerConfig = lsGet(SETTING_KEYS.PEERJS_SERVER, null);
@@ -275,6 +303,8 @@ async function startPeerJsPairing() {
     // Listen for the baby to call us back
     parentListenPeerJs({
       onReady(conn) {
+        _peerStatusUnsub?.();
+        _peerStatusUnsub = null;
         stopScanner();
         addMonitor(conn);
         showDashboard();
@@ -289,14 +319,42 @@ async function startPeerJsPairing() {
       },
     });
 
-    // Store baby's peer ID so the baby can call us — the baby device will
-    // display a QR with its peer ID, which we just scanned. Now we register
-    // ourselves with PeerJS and the baby will call() us.
+    // The baby device displays a QR with its peer ID; we just scanned it.
+    // We are now registered with PeerJS and listening — the baby will call() us.
   } catch (err) {
-    console.error('[parent] PeerJS pairing error:', err);
-    if (peerjsScanStatus) {
-      peerjsScanStatus.textContent = `Error: ${err.message}. Try Offline QR pairing instead.`;
-    }
+    // Fatal error: status listener already updated the UI text.
+    console.error('[parent] PeerJS pairing fatal error:', err);
+  }
+}
+
+/**
+ * Show a "Use Offline QR instead" button in the PeerJS pairing step.
+ * Called when the PeerJS server is unreachable so the user has a clear
+ * one-tap path to the offline connection method.
+ */
+function _showPeerjsOfflineFallback() {
+  if (!pairingPeerjsStep) return;
+  if (pairingPeerjsStep.querySelector('.peerjs-fallback-btn')) return;
+
+  const btn = document.createElement('button');
+  btn.className   = 'action-btn peerjs-fallback-btn';
+  btn.textContent = 'Use Offline QR instead';
+  btn.setAttribute('aria-label', 'Switch to Offline QR pairing');
+
+  btn.addEventListener('click', () => {
+    _peerStatusUnsub?.();
+    _peerStatusUnsub = null;
+    destroyPeer();
+    stopScanner();
+    // Return to method selection so the user can pick Offline QR
+    pairingPeerjsStep?.classList.add('hidden');
+    pairingMethodStep?.classList.remove('hidden');
+  });
+
+  if (peerjsScanStatus) {
+    pairingPeerjsStep.insertBefore(btn, peerjsScanStatus);
+  } else {
+    pairingPeerjsStep.appendChild(btn);
   }
 }
 

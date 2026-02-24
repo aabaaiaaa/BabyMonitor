@@ -68,6 +68,7 @@ export const SETTING_KEYS = {
   NOTIF_GRANTED:      'notifgranted',    // boolean
   PREFERRED_METHOD:   'connmethod',      // 'peerjs' | 'offline'
   DEVICE_ID:          'deviceid',        // string (baby device's unique ID)
+  PEER_ID:            'peerid',          // string (stable PeerJS peer ID, TASK-060)
   DEVICE_ROLE:        'role',            // 'baby' | 'parent' | null
   DEFAULT_MODE:       'defaultmode',     // soothing mode name
   DEFAULT_TRACK:      'defaulttrack',    // track filename

@@ -9,19 +9,47 @@
  * subsequent tasks (media display, data-channel messages, etc.) work
  * identically.
  *
- * This module is a stub that establishes the architectural boundaries.
- * The full implementation is completed in subsequent tasks:
- *   TASK-007  — peer connection management for both methods
- *   TASK-008  — TURN server configuration
- *   TASK-030  — auto-reconnect
- *   TASK-060  — PeerJS integration
- *   TASK-061  — backup ID pool
+ * PeerJS peer lifecycle (TASK-060) is delegated to peer.js; this module
+ * re-exports the relevant peer management APIs so callers only need to
+ * import from webrtc.js.
+ *
+ * TASK-007  — peer connection management for both methods
+ * TASK-008  — TURN server configuration
+ * TASK-030  — auto-reconnect
+ * TASK-061  — backup ID pool
  */
 
-import { lsGet, lsSet, SETTING_KEYS } from './storage.js';
+import { lsGet, SETTING_KEYS } from './storage.js';
+import {
+  initPeerManager,
+  destroyPeerManager,
+  getPeerInstance,
+  getPeerStatus   as _getPeerStatus,
+  getLocalPeerId  as _getLocalPeerId,
+  onPeerStatus    as _onPeerStatus,
+  getOrCreatePeerId as _getOrCreatePeerId,
+  PEER_ERROR      as _PEER_ERROR,
+} from './peer.js';
+
+// ---------------------------------------------------------------------------
+// Re-export peer management API (TASK-060)
+// ---------------------------------------------------------------------------
+
+/** @see peer.js */
+export const getPeerStatus    = _getPeerStatus;
+/** @see peer.js */
+export const getLocalPeerId   = _getLocalPeerId;
+/** @see peer.js */
+export const onPeerStatus     = _onPeerStatus;
+/** @see peer.js */
+export const getOrCreatePeerId = _getOrCreatePeerId;
+/** @see peer.js */
+export const PEER_ERROR       = _PEER_ERROR;
 
 // ---------------------------------------------------------------------------
 // ICE server configuration (TASK-008)
+// Used by the raw offline RTCPeerConnection path. PeerJS's own peer options
+// are built inside peer.js using the same logic.
 // ---------------------------------------------------------------------------
 
 /**
@@ -62,81 +90,35 @@ export function getIceServers() {
  */
 
 // ---------------------------------------------------------------------------
-// PeerJS connection path (TASK-060)
+// PeerJS connection path — delegates to peer.js (TASK-060)
 // ---------------------------------------------------------------------------
 
-/** @type {object|null} Active PeerJS Peer instance */
-let _peer = null;
-
 /**
- * Initialise the PeerJS Peer object.
+ * Initialise the PeerJS Peer via peer.js's initPeerManager.
+ * Uses the stable UUID-based peer ID from localStorage (or creates one).
+ * Wires full lifecycle handling: open, disconnected, error, close.
  *
- * @param {object} [serverConfig]  — optional custom PeerJS server settings
- * @returns {Promise<string>} the local peer ID once registered
+ * @param {object|null} [serverConfig] — optional custom PeerJS server config (TASK-008)
+ * @param {Function}    [onError]      — (detail: PeerErrorDetail) callback for errors
+ * @returns {Promise<string>} the local peer ID once registered with the server
  */
-export async function initPeer(serverConfig = null) {
-  if (typeof Peer === 'undefined') {
-    throw new Error('PeerJS library not loaded');
-  }
-
-  // Destroy any existing Peer
-  if (_peer && !_peer.destroyed) {
-    _peer.destroy();
-    _peer = null;
-  }
-
-  const options = {};
-
-  if (serverConfig) {
-    // Custom self-hosted PeerJS server (TASK-008)
-    options.host    = serverConfig.host;
-    options.port    = serverConfig.port ?? 9000;
-    options.path    = serverConfig.path ?? '/';
-    options.secure  = serverConfig.secure ?? true;
-  }
-
-  const savedConfig = lsGet(SETTING_KEYS.PEERJS_SERVER, null);
-  if (!serverConfig && savedConfig) {
-    options.host   = savedConfig.host;
-    options.port   = savedConfig.port ?? 9000;
-    options.path   = savedConfig.path ?? '/';
-    options.secure = savedConfig.secure ?? true;
-  }
-
-  // Inject TURN config into PeerJS iceServers
-  options.config = { iceServers: getIceServers() };
-
-  return new Promise((resolve, reject) => {
-    _peer = new Peer(options);
-
-    _peer.on('open', (id) => {
-      console.log('[webrtc] PeerJS peer ID:', id);
-      resolve(id);
-    });
-
-    _peer.on('error', (err) => {
-      console.error('[webrtc] PeerJS error:', err);
-      reject(err);
-    });
-  });
+export function initPeer(serverConfig = null, onError = null) {
+  return initPeerManager({ serverConfig, onError });
 }
 
 /**
- * Destroy the PeerJS Peer object.
+ * Destroy the PeerJS Peer and clean up all peer manager state.
  */
 export function destroyPeer() {
-  if (_peer && !_peer.destroyed) {
-    _peer.destroy();
-    _peer = null;
-  }
+  destroyPeerManager();
 }
 
 /**
- * Get the active PeerJS Peer instance (may be null).
+ * Get the active PeerJS Peer instance (may be null before init or after destroy).
  * @returns {object|null}
  */
 export function getPeer() {
-  return _peer;
+  return getPeerInstance();
 }
 
 // ---------------------------------------------------------------------------
@@ -156,17 +138,18 @@ export function getPeer() {
  * @returns {Promise<void>}
  */
 export async function babyCallParent(parentPeerId, localStream, callbacks) {
-  if (!_peer) throw new Error('PeerJS peer not initialised');
+  const peer = getPeerInstance();
+  if (!peer) throw new Error('PeerJS peer not initialised');
 
   const { onReady, onState, onMessage } = callbacks;
 
   onState?.('connecting');
 
   // Open media call
-  const call = _peer.call(parentPeerId, localStream);
+  const call = peer.call(parentPeerId, localStream);
 
   // Open data channel alongside the media call
-  const dataConn = _peer.connect(parentPeerId, { reliable: true });
+  const dataConn = peer.connect(parentPeerId, { reliable: true });
 
   dataConn.on('open', () => {
     const conn = /** @type {Connection} */ ({
@@ -215,7 +198,8 @@ export async function babyCallParent(parentPeerId, localStream, callbacks) {
  * @param {(msg: object) => void}      callbacks.onMessage
  */
 export function parentListenPeerJs(callbacks) {
-  if (!_peer) throw new Error('PeerJS peer not initialised');
+  const peer = getPeerInstance();
+  if (!peer) throw new Error('PeerJS peer not initialised');
 
   const { onReady, onState, onMessage } = callbacks;
 
@@ -238,7 +222,7 @@ export function parentListenPeerJs(callbacks) {
     onReady?.(conn);
   }
 
-  _peer.on('call', (call) => {
+  peer.on('call', (call) => {
     // Accept the media call
     call.answer();
 
@@ -255,7 +239,7 @@ export function parentListenPeerJs(callbacks) {
     });
   });
 
-  _peer.on('connection', (conn) => {
+  peer.on('connection', (conn) => {
     dataConn = conn;
     onState?.('connecting');
 

@@ -29,10 +29,11 @@ import {
   getOrCreateDeviceId,
 } from './storage.js';
 import {
-  initPeer, destroyPeer, getPeer,
+  initPeer, destroyPeer,
   babyCallParent, parentListenPeerJs,
   offlineBabyCreateOffer, offlineBabyReceiveAnswer,
   sendMessage, MSG,
+  onPeerStatus, PEER_ERROR,
 } from './webrtc.js';
 import {
   renderQR, renderQRGrid,
@@ -79,6 +80,9 @@ let localStream = null;
 
 /** @type {object|null} Active normalised connection */
 let activeConnection = null;
+
+/** @type {Function|null} Unsubscribe function for the current peer status listener */
+let _peerStatusUnsub = null;
 
 /** @type {WakeLockSentinel|null} Screen wake lock (TASK-003) */
 let wakeLock = null;
@@ -230,7 +234,32 @@ async function startPeerJsPairing() {
   pairingMethodStep?.classList.add('hidden');
   pairingPeerjsStep?.classList.remove('hidden');
 
+  // Remove any "Try Offline QR" fallback button from a previous attempt
+  pairingPeerjsStep?.querySelector('.peerjs-fallback-btn')?.remove();
+
   if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Connecting to pairing server…';
+
+  // Unsubscribe any previous status listener to prevent duplicates
+  _peerStatusUnsub?.();
+
+  // Register a status listener that drives the pairing UI in real time.
+  // This fires for the full lifecycle: registering → ready → disconnected → error.
+  _peerStatusUnsub = onPeerStatus((status, detail) => {
+    // Only update UI while the PeerJS pairing step is visible
+    if (pairingPeerjsStep?.classList.contains('hidden')) return;
+
+    if (status === 'disconnected') {
+      if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Reconnecting to pairing server…';
+    } else if (status === 'error') {
+      const msg = detail?.message ?? 'PeerJS connection error. Try Offline QR pairing.';
+      if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = msg;
+
+      // When the server is unreachable, offer a one-tap fallback to Offline QR
+      if (detail?.serverUnavailable || detail?.type === PEER_ERROR.LIBRARY_UNAVAILABLE) {
+        _showPeerjsOfflineFallback();
+      }
+    }
+  });
 
   try {
     const peerjsServerConfig = lsGet(SETTING_KEYS.PEERJS_SERVER, null);
@@ -241,9 +270,11 @@ async function startPeerJsPairing() {
     if (peerIdText) peerIdText.textContent = peerId;
     if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Waiting for parent to connect…';
 
-    // Listen for the parent to connect back to us
+    // Listen for the parent to connect to us
     parentListenPeerJs({
       onReady(conn) {
+        _peerStatusUnsub?.();
+        _peerStatusUnsub = null;
         activeConnection = conn;
         stopScanner();
         startMonitor(conn);
@@ -258,10 +289,41 @@ async function startPeerJsPairing() {
       },
     });
   } catch (err) {
-    if (pairingStatusPeerjs) {
-      pairingStatusPeerjs.textContent = `Connection failed: ${err.message}. Try Offline QR pairing.`;
-    }
-    console.error('[baby] PeerJS pairing error:', err);
+    // Fatal error: the status listener already updated pairingStatusPeerjs text
+    // and may have shown the offline fallback button. Just log for debugging.
+    console.error('[baby] PeerJS pairing fatal error:', err);
+  }
+}
+
+/**
+ * Show a "Use Offline QR instead" button in the PeerJS pairing step.
+ * Called when the PeerJS server is unreachable so the user has a clear
+ * one-tap path to the offline connection method.
+ */
+function _showPeerjsOfflineFallback() {
+  if (!pairingPeerjsStep) return;
+  // Avoid duplicates
+  if (pairingPeerjsStep.querySelector('.peerjs-fallback-btn')) return;
+
+  const btn = document.createElement('button');
+  btn.className   = 'action-btn peerjs-fallback-btn';
+  btn.textContent = 'Use Offline QR instead';
+  btn.setAttribute('aria-label', 'Switch to Offline QR pairing');
+
+  btn.addEventListener('click', () => {
+    _peerStatusUnsub?.();
+    _peerStatusUnsub = null;
+    destroyPeer();
+    // Return to method selection so the user can pick Offline QR
+    pairingPeerjsStep?.classList.add('hidden');
+    pairingMethodStep?.classList.remove('hidden');
+  });
+
+  // Insert the button just before the status line so it's prominent
+  if (pairingStatusPeerjs) {
+    pairingPeerjsStep.insertBefore(btn, pairingStatusPeerjs);
+  } else {
+    pairingPeerjsStep.appendChild(btn);
   }
 }
 
@@ -712,6 +774,10 @@ babyMonitor?.addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 
 function handleDisconnect(reason) {
+  // Clean up peer status listener if still active
+  _peerStatusUnsub?.();
+  _peerStatusUnsub = null;
+
   stopScanner();
   if (localStream) {
     localStream.getTracks().forEach(t => t.stop());
