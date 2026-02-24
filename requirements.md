@@ -58,7 +58,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
   **Method 3 — Connect via existing parent device:** A third option on the home screen role selection, labelled "Add this device as an additional parent monitor". This is used by a second parent who already has a paired parent device in the household. In this mode, the second parent's app waits to receive baby monitor connection details from the first parent. The first parent initiates this from their dashboard (see TASK-058) and their device displays a QR code containing only their own PeerJS peer ID. The second parent scans this single QR, a PeerJS connection opens between the two parent devices, and the first parent's app automatically sends the PeerJS ID and backup pool for each paired baby monitor to the second parent. The second parent's app then connects directly and independently to each baby monitor using those IDs, without any further involvement from the first parent device. This mode is only available when PeerJS is reachable.
 
 ### TASK-007: Implement peer connection management for both connection methods
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-006, TASK-060
 - **Description**: Implement the connection layer that handles both connection methods, exposing a unified interface to the rest of the app (media stream setup, data channel, connection state) regardless of which method was used.

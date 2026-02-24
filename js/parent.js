@@ -536,6 +536,9 @@ function removeMonitor(deviceId) {
   const entry = monitors.get(deviceId);
   if (!entry) return;
 
+  // Close the WebRTC connection cleanly (closes data channel / peer connection)
+  try { entry.conn?.close?.(); } catch (_) { /* ignore */ }
+
   // Stop media tracks
   entry.mediaStream?.getTracks().forEach(t => t.stop());
 

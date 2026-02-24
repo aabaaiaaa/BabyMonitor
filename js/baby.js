@@ -811,11 +811,15 @@ function handleDisconnect(reason) {
   _peerStatusUnsub = null;
 
   stopScanner();
+
+  // Close the connection cleanly (closes data channel / peer connection)
+  try { activeConnection?.close?.(); } catch (_) { /* ignore */ }
+  activeConnection = null;
+
   if (localStream) {
     localStream.getTracks().forEach(t => t.stop());
     localStream = null;
   }
-  activeConnection = null;
   showDisconnected(reason === 'failed' ? 'Connection failed.' : 'Connection lost.');
 }
 

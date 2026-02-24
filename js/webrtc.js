@@ -84,9 +84,10 @@ export function getIceServers() {
  * @property {string}        deviceId    — remote device's unique ID
  * @property {RTCDataChannel|object} dataChannel — normalised data channel
  * @property {MediaStream|null}      mediaStream  — incoming media stream
- * @property {ConnState}             state
+ * @property {ConnState}             state        — live connection state
  * @property {string}                method       — 'peerjs' | 'offline'
  * @property {RTCPeerConnection|null} peerConnection — underlying RTC connection
+ * @property {() => void}            close        — cleanly close the connection
  */
 
 // ---------------------------------------------------------------------------
@@ -159,6 +160,10 @@ export async function babyCallParent(parentPeerId, localStream, callbacks) {
       state:          'connected',
       method:         'peerjs',
       peerConnection: call.peerConnection ?? null,
+      close() {
+        try { dataConn.close(); } catch (_) { /* ignore */ }
+        try { call.close();    } catch (_) { /* ignore */ }
+      },
     });
     onState?.('connected');
     onReady?.(conn);
@@ -207,28 +212,46 @@ export function parentListenPeerJs(callbacks) {
   let remoteStream = null;
   /** @type {object|null} */
   let dataConn     = null;
+  /** @type {RTCPeerConnection|null} */
+  let peerConn     = null;
+  /** @type {boolean} onReady already fired — guard against double invocation */
+  let notified     = false;
 
   function tryNotifyReady() {
-    if (!remoteStream || !dataConn?.open) return;
+    if (notified || !remoteStream || !dataConn?.open) return;
+    notified = true;
+
     const conn = /** @type {Connection} */ ({
       deviceId:       dataConn.peer,
       dataChannel:    normalisePeerJsDataConn(dataConn),
       mediaStream:    remoteStream,
       state:          'connected',
       method:         'peerjs',
-      peerConnection: null, // set below once call.peerConnection is known
+      peerConnection: peerConn,
+      close() {
+        try { dataConn?.close(); } catch (_) { /* ignore */ }
+      },
     });
     onState?.('connected');
     onReady?.(conn);
   }
 
   peer.on('call', (call) => {
-    // Accept the media call
+    // Accept the media call — no local stream needed on the parent side
     call.answer();
+
+    // Capture the underlying RTCPeerConnection for bitrate/track replacement
+    // (call.peerConnection is set synchronously by PeerJS after answer())
+    if (call.peerConnection) {
+      peerConn = call.peerConnection;
+    }
 
     call.on('stream', (stream) => {
       remoteStream = stream;
-      // Attach peerConnection reference if available
+      // peerConnection may now be set even if it wasn't on answer()
+      if (!peerConn && call.peerConnection) {
+        peerConn = call.peerConnection;
+      }
       tryNotifyReady();
     });
 
@@ -327,6 +350,10 @@ export async function offlineBabyCreateOffer(localStream, callbacks) {
  * Baby device, offline QR path:
  * Receive the parent's answer and ICE candidates, complete the handshake.
  *
+ * Waits for the data channel to open (which confirms ICE + DTLS are complete)
+ * before calling onReady — satisfying the requirement to validate the data
+ * channel is open before transitioning to the monitor view.
+ *
  * @param {string} answerJson — JSON string of { sdp, candidates }
  * @param {object} callbacks
  * @param {(conn: Connection) => void} callbacks.onReady
@@ -335,6 +362,7 @@ export async function offlineBabyCreateOffer(localStream, callbacks) {
 export async function offlineBabyReceiveAnswer(answerJson, callbacks) {
   const { onReady, onState } = callbacks;
   if (!_rtcConn) throw new Error('RTCPeerConnection not initialised');
+  if (!_dataCh)  throw new Error('Data channel not initialised — call offlineBabyCreateOffer first');
 
   const { sdp, candidates } = JSON.parse(answerJson);
   await _rtcConn.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -343,24 +371,64 @@ export async function offlineBabyReceiveAnswer(answerJson, callbacks) {
     await _rtcConn.addIceCandidate(new RTCIceCandidate(c));
   }
 
-  // Connection should now be establishing; wait for data channel open
-  _rtcConn.addEventListener('iceconnectionstatechange', () => {
-    const s = _rtcConn.iceConnectionState;
-    if (s === 'connected' || s === 'completed') {
-      onState?.('connected');
-      const conn = /** @type {Connection} */ ({
-        deviceId:       'parent',
-        dataChannel:    normaliseRawDataChannel(_dataCh),
-        mediaStream:    null,
-        state:          'connected',
-        method:         'offline',
-        peerConnection: _rtcConn,
-      });
-      onReady?.(conn);
-    } else if (s === 'failed' || s === 'disconnected' || s === 'closed') {
-      onState?.(s === 'closed' ? 'disconnected' : s);
+  // Capture references in case module-level vars change before callbacks fire
+  const pc = _rtcConn;
+  const dc = _dataCh;
+
+  /** @type {Connection} */
+  const conn = {
+    deviceId:       'parent',
+    dataChannel:    normaliseRawDataChannel(dc),
+    mediaStream:    null,
+    state:          'connecting',
+    method:         'offline',
+    peerConnection: pc,
+    close() {
+      closeOfflineConnection();
+    },
+  };
+
+  /** Guard: ensure onReady fires at most once */
+  let notified = false;
+
+  const notifyReady = () => {
+    if (notified) return;
+    notified = true;
+    conn.state = 'connected';
+    onState?.('connected');
+    onReady?.(conn);
+  };
+
+  // Primary signal: data channel open means ICE + DTLS have both completed.
+  if (dc.readyState === 'open') {
+    // Already open (very fast connection or edge-case)
+    notifyReady();
+  } else {
+    dc.addEventListener('open', notifyReady, { once: true });
+  }
+
+  // Track connection failures via both ICE and connection-state events.
+  const trackState = () => {
+    const ice = pc.iceConnectionState;
+    const cs  = pc.connectionState;
+
+    if (ice === 'failed' || cs === 'failed') {
+      conn.state = 'failed';
+      onState?.('failed');
+    } else if (ice === 'disconnected' || cs === 'disconnected') {
+      if (notified) {
+        // Only surface reconnecting / disconnected after the connection was ready
+        conn.state = 'reconnecting';
+        onState?.('reconnecting');
+      }
+    } else if (ice === 'closed' || cs === 'closed') {
+      conn.state = 'disconnected';
+      onState?.('disconnected');
     }
-  });
+  };
+
+  pc.addEventListener('iceconnectionstatechange', trackState);
+  pc.addEventListener('connectionstatechange',    trackState);
 }
 
 /**
@@ -401,6 +469,9 @@ export async function offlineParentReceiveOffer(offerJson, callbacks) {
         state:          'connected',
         method:         'offline',
         peerConnection: pc,
+        close() {
+          closeOfflineConnection();
+        },
       });
       onReady?.(conn);
     });
@@ -510,9 +581,14 @@ function _wireDataChannel(channel, onMessage) {
 // ICE gathering helper
 // ---------------------------------------------------------------------------
 
+/** Maximum time to wait for ICE gathering to complete (ms). */
+const ICE_GATHER_TIMEOUT_MS = 15_000;
+
 /**
  * Wait for the ICE gathering to complete on a peer connection.
  * Resolves with an array of collected RTCIceCandidate objects.
+ * After ICE_GATHER_TIMEOUT_MS, resolves with whatever candidates have been
+ * gathered so far rather than blocking indefinitely.
  *
  * @param {RTCPeerConnection} pc
  * @returns {Promise<RTCIceCandidateInit[]>}
@@ -527,6 +603,20 @@ function _waitForIceCandidates(pc) {
       return;
     }
 
+    let done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve(candidates);
+    };
+
+    // Timeout fallback: resolve with partial candidates rather than hanging
+    const timer = setTimeout(() => {
+      console.warn('[webrtc] ICE gathering timed out — proceeding with', candidates.length, 'candidate(s)');
+      finish();
+    }, ICE_GATHER_TIMEOUT_MS);
+
     pc.addEventListener('icecandidate', (event) => {
       if (event.candidate) {
         candidates.push(event.candidate.toJSON());
@@ -535,7 +625,8 @@ function _waitForIceCandidates(pc) {
 
     pc.addEventListener('icegatheringstatechange', () => {
       if (pc.iceGatheringState === 'complete') {
-        resolve(candidates);
+        clearTimeout(timer);
+        finish();
       }
     });
   });
