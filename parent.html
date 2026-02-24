@@ -381,12 +381,42 @@
                aria-label="Noise alert sensitivity" />
       </section>
 
-      <!-- Motion sensitivity (TASK-026) -->
+      <!-- Motion sensitivity and snooze (TASK-026, TASK-027) -->
       <section class="control-group" aria-labelledby="cp-motion-label">
         <h3 id="cp-motion-label">Movement Sensitivity</h3>
         <input type="range" id="cp-motion-threshold" min="0" max="100" value="50"
                aria-label="Movement detection sensitivity" />
         <p class="settings-hint">Lower value = more sensitive. A 🚶 indicator appears on the panel when movement is detected.</p>
+
+        <!-- Snooze movement alerts for this monitor (TASK-027) -->
+        <div id="cp-snooze-group" class="snooze-group">
+          <p class="settings-hint">Snooze movement alerts for this monitor:</p>
+          <div class="snooze-btn-group" role="group" aria-label="Per-monitor snooze duration">
+            <button class="snooze-btn timer-btn" data-duration="600000"
+                    aria-label="Snooze movement alerts for 10 minutes">10 min</button>
+            <button class="snooze-btn timer-btn" data-duration="1800000"
+                    aria-label="Snooze movement alerts for 30 minutes">30 min</button>
+            <button class="snooze-btn timer-btn" data-duration="3600000"
+                    aria-label="Snooze movement alerts for 1 hour">1 hr</button>
+            <button class="snooze-btn timer-btn hidden" id="cp-snooze-cancel"
+                    aria-label="Cancel snooze for this monitor">Unsnooze</button>
+          </div>
+        </div>
+
+        <!-- Snooze movement alerts for all monitors globally (TASK-027) -->
+        <div id="cp-snooze-all-group" class="snooze-group snooze-group--global">
+          <p class="settings-hint">Snooze all monitors:</p>
+          <div class="snooze-btn-group" role="group" aria-label="Global snooze duration">
+            <button class="snooze-btn timer-btn" data-duration="600000"
+                    aria-label="Snooze all movement alerts for 10 minutes">10 min</button>
+            <button class="snooze-btn timer-btn" data-duration="1800000"
+                    aria-label="Snooze all movement alerts for 30 minutes">30 min</button>
+            <button class="snooze-btn timer-btn" data-duration="3600000"
+                    aria-label="Snooze all movement alerts for 1 hour">1 hr</button>
+            <button class="snooze-btn timer-btn hidden" id="cp-snooze-all-cancel"
+                    aria-label="Cancel global snooze">Unsnooze all</button>
+          </div>
+        </div>
       </section>
 
       <!-- Disconnect -->

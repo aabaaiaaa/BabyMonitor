@@ -184,7 +184,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: On the parent monitor, implement frame-differencing motion detection on the incoming baby video stream. Draw each video frame to an offscreen `<canvas>`, compare pixel values to the previous frame, and compute a motion score. Throttle the analysis to run every 2–3 seconds to reduce CPU and battery load. Display a movement indicator on the baby's panel. If movement exceeds a configurable threshold, trigger a visual alert (e.g. panel border flashes, optional on-screen notification). Provide a sensitivity slider in the panel settings.
 
 ### TASK-027: Implement movement detection alerts and notification
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-026, TASK-047
 - **Description**: When movement is detected above the configured threshold, show a persistent visual alert on the parent dashboard. Use the Notifications API (`Notification.requestPermission()`) to send a browser notification if the tab is in the background or the screen is locked, so the parent is alerted even when not actively watching the app. Include the baby's label in the notification text. Allow the parent to mute movement alerts per device or globally for a set period (e.g. "Snooze alerts for 10 minutes").

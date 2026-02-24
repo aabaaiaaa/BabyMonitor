@@ -214,6 +214,35 @@
 .dark-mode .alert-banner--noise    { background: #431407; color: #fcd34d; }
 .dark-mode .alert-banner--movement { background: #172554; color: #93c5fd; }
 
+/* Snooze confirmation banner (TASK-027) */
+.alert-banner--snooze {
+  background: #f0fdf4;
+  color: #166534;
+  border-left: 4px solid #22c55e;
+  font-weight: 500;
+}
+
+.dark-mode .alert-banner--snooze { background: #052e16; color: #86efac; }
+
+/* Snooze button inside a movement alert banner (TASK-027) */
+.alert-banner__snooze {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-pill);
+  background: rgba(59, 130, 246, 0.15);
+  color: inherit;
+  border: 1px solid currentColor;
+  opacity: 0.85;
+  min-height: var(--touch-target);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.alert-banner__snooze:hover { opacity: 1; }
+
 .alert-banner__dismiss {
   margin-left: auto;
   font-size: 0.75rem;
@@ -629,6 +658,44 @@
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   min-height: 1.4em;
+}
+
+/* --------------------------------------------------------------------------
+   Snooze controls (TASK-027)
+   Used inside the control panel's motion sensitivity section.
+   -------------------------------------------------------------------------- */
+
+/* Container for each snooze block (per-device and global) */
+.snooze-group {
+  margin-top: var(--space-sm);
+}
+
+/* Separator line above the "Snooze all monitors" block */
+.snooze-group--global {
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Button row inside a snooze group */
+.snooze-btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+/* Unsnooze / Cancel button: styled as a secondary danger variant */
+#cp-snooze-cancel,
+#cp-snooze-all-cancel {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+#cp-snooze-cancel:hover,
+#cp-snooze-all-cancel:hover {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
 }
 
 /* Custom timer row (TASK-014) */

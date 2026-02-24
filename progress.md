@@ -2,9 +2,9 @@
 
 ## Summary
 - **Total Tasks**: 71
-- **Completed**: 39
-- **Remaining**: 32
-- **Last Updated**: 2026-02-24T23:09:06.140Z
+- **Completed**: 40
+- **Remaining**: 31
+- **Last Updated**: 2026-02-24T23:15:13.448Z
 
 ## Iteration Log
 
@@ -319,4 +319,12 @@
 - **Exit Status**: success
 - **Tokens**: 2,735,813 total (48 in, 15,371 out, 56,593 cache-create, 2,663,801 cache-read)
 - **Cost**: $2.3069
+
+### Iteration 40 - 2026-02-24T23:09:08.584Z
+- **Task Completed**: TASK-027
+- **Summary**: Completed Implement movement detection alerts and notification
+- **Duration**: 365s
+- **Exit Status**: success
+- **Tokens**: 3,332,839 total (6,714 in, 23,576 out, 80,923 cache-create, 3,221,626 cache-read)
+- **Cost**: $2.7396
 

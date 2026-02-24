@@ -181,6 +181,9 @@ const cpFlipCamera        = document.getElementById('cp-flip-camera');
 const cpAudioOnly         = document.getElementById('cp-audio-only');
 const cpNoiseThreshold    = document.getElementById('cp-noise-threshold');
 const cpMotionThreshold   = document.getElementById('cp-motion-threshold'); // TASK-026
+// Snooze controls (TASK-027) — event delegation wired via cp-snooze-group / cp-snooze-all-group
+const cpSnoozeGroup       = document.getElementById('cp-snooze-group');
+const cpSnoozeAllGroup    = document.getElementById('cp-snooze-all-group');
 const cpAudioFile         = document.getElementById('cp-audio-file');
 const cpSendAudio         = document.getElementById('cp-send-audio');
 const cpTransferProgress  = document.getElementById('cp-transfer-progress');
@@ -1205,6 +1208,9 @@ function openControlPanel(deviceId) {
   // Populate motion threshold from profile (TASK-026)
   if (cpMotionThreshold) cpMotionThreshold.value = String(entry.motionThreshold);
 
+  // Sync snooze button state for this device (TASK-027)
+  _syncSnoozeUI(deviceId);
+
   // Sync monitor volume slider to this entry's current desired gain (TASK-011).
   // Opening the control panel is always in response to a user gesture, so
   // this is also the right place to resume a suspended AudioContext.
@@ -1805,6 +1811,55 @@ cpMotionThreshold?.addEventListener('change', () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Movement alert snooze controls (TASK-027)
+// ---------------------------------------------------------------------------
+
+// Per-device snooze duration buttons + unsnooze (event delegation on the group).
+cpSnoozeGroup?.addEventListener('click', (e) => {
+  const btn = /** @type {HTMLButtonElement|null} */ (e.target.closest('.snooze-btn'));
+  if (!btn || !controlPanelDeviceId) return;
+
+  if (btn.id === 'cp-snooze-cancel') {
+    // Cancel the per-device snooze.
+    _snoozeUntil.delete(controlPanelDeviceId);
+    const bannerKey = `${controlPanelDeviceId}:snooze`;
+    alertBanners?.querySelector(`[data-alert-key="${escapeHtml(bannerKey)}"]`)?.remove();
+    _syncSnoozeUI(controlPanelDeviceId);
+    return;
+  }
+
+  const durationMs = parseInt(btn.dataset.duration, 10);
+  if (!durationMs || isNaN(durationMs)) return;
+
+  const entry = monitors.get(controlPanelDeviceId);
+  if (entry) {
+    snoozeMovementAlerts(controlPanelDeviceId, entry.label, durationMs);
+    _syncSnoozeUI(controlPanelDeviceId);
+  }
+});
+
+// Global snooze duration buttons + unsnooze all (event delegation on the group).
+cpSnoozeAllGroup?.addEventListener('click', (e) => {
+  const btn = /** @type {HTMLButtonElement|null} */ (e.target.closest('.snooze-btn'));
+  if (!btn) return;
+
+  if (btn.id === 'cp-snooze-all-cancel') {
+    // Cancel the global snooze.
+    _snoozeUntil.delete('global');
+    const bannerKey = 'global:snooze';
+    alertBanners?.querySelector(`[data-alert-key="${escapeHtml(bannerKey)}"]`)?.remove();
+    _syncSnoozeUI(null);
+    return;
+  }
+
+  const durationMs = parseInt(btn.dataset.duration, 10);
+  if (!durationMs || isNaN(durationMs)) return;
+
+  snoozeMovementAlerts('global', 'All monitors', durationMs);
+  _syncSnoozeUI(null);
+});
+
 // Audio file picker — enable send button when a valid file is selected (TASK-013)
 cpAudioFile?.addEventListener('change', () => {
   // Only enable when no transfer is already in progress and a file is selected
@@ -2159,6 +2214,105 @@ function handleDataMessage(deviceId, msg) {
 /** @type {Set<string>} Active alert keys (deviceId + type) */
 const activeAlerts = new Set();
 
+// ---------------------------------------------------------------------------
+// Movement alert snooze state (TASK-027)
+// ---------------------------------------------------------------------------
+
+/**
+ * Movement alert snooze state.
+ * Key: deviceId for per-device snooze, or 'global' to silence all monitors.
+ * Value: epoch-ms timestamp after which alerts should resume.
+ * @type {Map<string, number>}
+ */
+const _snoozeUntil = new Map();
+
+/** Named snooze durations in milliseconds (TASK-027). */
+const SNOOZE_DURATIONS_MS = {
+  '10min': 10 * 60_000,
+  '30min': 30 * 60_000,
+  '1hour': 60 * 60_000,
+};
+
+/**
+ * Returns true if movement alerts for the given device are currently snoozed.
+ * Checks both per-device snooze and the global snooze (TASK-027).
+ * @param {string} deviceId
+ * @returns {boolean}
+ */
+function isMovementAlertSnoozed(deviceId) {
+  const now = Date.now();
+  const globalUntil = _snoozeUntil.get('global');
+  if (globalUntil && now < globalUntil) return true;
+  const deviceUntil = _snoozeUntil.get(deviceId);
+  return deviceUntil != null && now < deviceUntil;
+}
+
+/**
+ * Snooze movement alerts for a device or for all monitors (TASK-027).
+ * Shows a snooze-confirmation banner in the alert area with a Cancel button.
+ *
+ * @param {string} key          — deviceId, or 'global' to snooze all monitors
+ * @param {string} displayLabel — human-readable name for the confirmation banner
+ * @param {number} durationMs   — snooze duration in milliseconds
+ */
+function snoozeMovementAlerts(key, displayLabel, durationMs) {
+  _snoozeUntil.set(key, Date.now() + durationMs);
+
+  // Remove any existing snooze-confirmation banner for this key.
+  const bannerKey = `${key}:snooze`;
+  const existing = alertBanners?.querySelector(`[data-alert-key="${escapeHtml(bannerKey)}"]`);
+  if (existing) existing.remove();
+
+  const mins = Math.round(durationMs / 60_000);
+  const banner = document.createElement('div');
+  banner.className = 'alert-banner alert-banner--snooze';
+  banner.setAttribute('role', 'status');
+  banner.dataset.alertKey = bannerKey;
+  banner.innerHTML = `
+    🔕 <strong>${escapeHtml(displayLabel)}</strong> movement alerts snoozed for ${mins} min
+    <button class="alert-banner__dismiss" aria-label="Cancel snooze">Cancel</button>
+  `;
+  banner.querySelector('.alert-banner__dismiss')?.addEventListener('click', () => {
+    _snoozeUntil.delete(key);
+    banner.remove();
+    _syncSnoozeUI(key === 'global' ? null : key);
+  });
+
+  alertBanners?.prepend(banner);
+
+  // Auto-remove the confirmation banner when the snooze period expires.
+  setTimeout(() => {
+    _snoozeUntil.delete(key);
+    if (banner.isConnected) banner.remove();
+    _syncSnoozeUI(key === 'global' ? null : key);
+  }, durationMs);
+}
+
+/**
+ * Refresh the snooze button visibility in the control panel for a given device.
+ * Shows the "Unsnooze" button when the device (or global) is snoozed; hides it otherwise.
+ * Called after a snooze is set, cancelled, or expires (TASK-027).
+ *
+ * @param {string|null} deviceId — null means re-sync using the current controlPanelDeviceId
+ */
+function _syncSnoozeUI(deviceId) {
+  const id = deviceId ?? controlPanelDeviceId;
+
+  // Per-device snooze cancel button
+  const unsnoozeBtnDevice = document.getElementById('cp-snooze-cancel');
+  if (unsnoozeBtnDevice && id) {
+    const deviceSnoozed = _snoozeUntil.has(id) && Date.now() < (_snoozeUntil.get(id) ?? 0);
+    unsnoozeBtnDevice.classList.toggle('hidden', !deviceSnoozed);
+  }
+
+  // Global snooze cancel button
+  const unsnoozeBtnGlobal = document.getElementById('cp-snooze-all-cancel');
+  if (unsnoozeBtnGlobal) {
+    const globalSnoozed = _snoozeUntil.has('global') && Date.now() < (_snoozeUntil.get('global') ?? 0);
+    unsnoozeBtnGlobal.classList.toggle('hidden', !globalSnoozed);
+  }
+}
+
 /**
  * Send a browser notification if permission is granted and the tab is hidden.
  * Used to deliver movement, battery, and noise alerts in the background (TASK-029).
@@ -2219,11 +2373,15 @@ function showBatteryAlert(deviceId, level, label) {
  * Display a movement alert banner and send a background notification if the
  * tab is hidden (TASK-027, TASK-029).
  * Called by the movement detection logic (TASK-026) when motion is detected.
+ * Respects per-device and global snooze state (TASK-027).
  *
  * @param {string} deviceId
  * @param {string} label
  */
 function showMovementAlert(deviceId, label) {
+  // Do not show the alert while snoozed (TASK-027).
+  if (isMovementAlertSnoozed(deviceId)) return;
+
   const key = `${deviceId}:movement`;
   // Allow the alert to re-fire for each new movement event; do not deduplicate
   // indefinitely — remove the existing banner (if any) before adding a new one.
@@ -2238,8 +2396,16 @@ function showMovementAlert(deviceId, label) {
   banner.dataset.alertKey = key;
   banner.innerHTML = `
     🚶 <strong>${escapeHtml(label)}</strong>: Movement detected
+    <button class="alert-banner__snooze" aria-label="Snooze movement alerts for 10 minutes">Snooze 10 min</button>
     <button class="alert-banner__dismiss" aria-label="Dismiss movement alert">✕</button>
   `;
+  // "Snooze 10 min" button: snooze this device for 10 minutes and remove banner (TASK-027).
+  banner.querySelector('.alert-banner__snooze')?.addEventListener('click', () => {
+    snoozeMovementAlerts(deviceId, label, SNOOZE_DURATIONS_MS['10min']);
+    banner.remove();
+    activeAlerts.delete(key);
+    _syncSnoozeUI(deviceId);
+  });
   banner.querySelector('.alert-banner__dismiss')?.addEventListener('click', () => {
     banner.remove();
     activeAlerts.delete(key);
