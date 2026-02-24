@@ -196,7 +196,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Add battery conservation controls. On the baby monitor: (a) an "audio only" mode that disables the video track entirely, (b) a low-resolution/low-fps mode (e.g. 320×240 at 10 fps), and (c) a screen-off/dim mode that turns the display near-black while keeping the connection alive. On the parent monitor: (a) an option to pause receiving video (data channel command tells baby to pause video) while keeping audio and data alive, and (b) reduced analysis frequency for movement detection and noise monitoring. Document these options clearly in the UI with battery-life impact hints.
 
 ### TASK-029: Implement background tab persistence and visibility handling
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-003, TASK-009, TASK-047
 - **Description**: Handle the case where the parent or baby app tab is hidden or the phone is locked. Use the Page Visibility API to detect when the tab becomes hidden. When the baby monitor tab is hidden: keep the WebRTC connection and media streams alive (do not stop tracks), and re-acquire the Wake Lock when the tab becomes visible again. On the parent side when the tab is hidden: keep connections alive and use the Notifications API to deliver movement or battery alerts. Show a persistent banner in the app instructing users to keep the tab open or install the PWA to improve background reliability.

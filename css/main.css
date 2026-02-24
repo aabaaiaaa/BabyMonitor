@@ -327,6 +327,90 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   Background persistence banner (TASK-029)
+   Shown when monitoring is active; informs users to keep the tab open (or
+   install the PWA) to maintain WebRTC connections and background alerts.
+   Positioned at the bottom of the viewport so it does not overlap existing
+   header UI or alert banners.
+   -------------------------------------------------------------------------- */
+.bg-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: #e0f2fe;
+  border-top: 2px solid #0284c7;
+  color: #0c4a6e;
+  font-size: var(--font-size-sm);
+  /* Slide up from bottom */
+  animation: bg-banner-slide-in var(--transition-base) both;
+}
+
+@keyframes bg-banner-slide-in {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.dark-mode .bg-banner {
+  background: rgba(2, 132, 199, 0.12);
+  border-top-color: #38bdf8;
+  color: #bae6fd;
+}
+
+.bg-banner__icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.bg-banner__msg {
+  flex: 1;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.bg-banner__pwa {
+  display: inline;
+}
+
+.bg-banner__install-btn {
+  display: inline;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.bg-banner__dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  font-size: 1rem;
+  color: inherit;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0.7;
+}
+
+.bg-banner__dismiss:hover,
+.bg-banner__dismiss:focus-visible {
+  opacity: 1;
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
    Icon buttons and text buttons
    -------------------------------------------------------------------------- */
 .icon-btn {

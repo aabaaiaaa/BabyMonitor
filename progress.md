@@ -2,9 +2,9 @@
 
 ## Summary
 - **Total Tasks**: 71
-- **Completed**: 20
-- **Remaining**: 51
-- **Last Updated**: 2026-02-24T21:14:48.384Z
+- **Completed**: 21
+- **Remaining**: 50
+- **Last Updated**: 2026-02-24T21:21:30.408Z
 
 ## Iteration Log
 
@@ -167,4 +167,12 @@
 - **Exit Status**: success
 - **Tokens**: 4,685,663 total (53 in, 23,262 out, 94,929 cache-create, 4,567,419 cache-read)
 - **Cost**: $3.6076
+
+### Iteration 21 - 2026-02-24T21:14:50.830Z
+- **Task Completed**: TASK-029
+- **Summary**: Completed Implement background tab persistence and visibility handling
+- **Duration**: 400s
+- **Exit Status**: success
+- **Tokens**: 3,595,270 total (45 in, 22,171 out, 91,665 cache-create, 3,481,389 cache-read)
+- **Cost**: $2.9772
 

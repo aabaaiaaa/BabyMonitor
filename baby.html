@@ -119,6 +119,19 @@
     </div>
   </section>
 
+  <!-- Background persistence banner (TASK-029): shown when the baby monitor is active.
+       Instructs the user to keep this tab open or install the PWA to maintain the
+       WebRTC connection and media stream while the phone screen is on or locked. -->
+  <div id="bg-banner" class="bg-banner hidden" role="status" aria-live="polite">
+    <span class="bg-banner__icon" aria-hidden="true">📡</span>
+    <p class="bg-banner__msg">Keep this tab open to maintain the baby monitor.
+      <span id="bg-banner-pwa" class="bg-banner__pwa hidden">
+        — or <button id="bg-banner-install" class="bg-banner__install-btn">Install as app</button> for best reliability.
+      </span>
+    </p>
+    <button id="bg-banner-dismiss" class="bg-banner__dismiss" aria-label="Dismiss">✕</button>
+  </div>
+
   <!-- Active baby monitor view: shown once connected (TASK-015) -->
   <main id="baby-monitor" class="baby-monitor hidden" aria-label="Baby monitor active">
 

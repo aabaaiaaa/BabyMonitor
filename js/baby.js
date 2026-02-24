@@ -193,6 +193,12 @@ const babyTransferStatus  = document.getElementById('baby-transfer-status');
 const babyTransferText    = document.getElementById('baby-transfer-text');
 const babyTransferBar     = document.getElementById('baby-transfer-bar');
 
+// Background persistence banner (TASK-029)
+const bgBanner            = document.getElementById('bg-banner');
+const bgBannerPwa         = document.getElementById('bg-banner-pwa');
+const bgBannerInstall     = document.getElementById('bg-banner-install');
+const bgBannerDismiss     = document.getElementById('bg-banner-dismiss');
+
 // ---------------------------------------------------------------------------
 // Browser compatibility check (TASK-045)
 // Run immediately at module load — before any user interaction or init().
@@ -241,11 +247,101 @@ async function requestWakeLock() {
   }
 }
 
-/** Re-acquire wake lock when tab becomes visible again (TASK-003). */
+// ---------------------------------------------------------------------------
+// Page Visibility API — background tab persistence (TASK-029)
+// ---------------------------------------------------------------------------
+//
+// When the baby monitor tab is hidden (user switches app, phone locks, etc.):
+//   • The Wake Lock is released by the OS — this is expected and unavoidable.
+//   • WebRTC connections and media streams MUST stay alive. We deliberately
+//     do NOT stop any tracks here; stopping them would tear down the stream
+//     and require the parent to re-pair when the tab becomes visible again.
+//   • Animation frames are paused automatically by the browser — no action
+//     needed; they resume when the tab becomes visible again.
+//
+// When the tab becomes visible again:
+//   • Re-acquire the Wake Lock so the screen stays on during monitoring.
+//   • The media stream and WebRTC connection are already alive and need no
+//     additional action.
+
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && !wakeLock) {
-    await requestWakeLock();
+  if (document.visibilityState === 'hidden') {
+    // Tab went to background — log and keep everything alive.
+    // Explicitly: do NOT call localStream.getTracks().forEach(t => t.stop()).
+    // The Wake Lock is released automatically by the browser; we will
+    // re-request it when the tab becomes visible again.
+    console.log('[baby] Tab hidden — WebRTC connection and media stream kept alive (TASK-029)');
+  } else if (document.visibilityState === 'visible') {
+    // Tab came back to foreground — re-acquire the Wake Lock (TASK-003).
+    if (!wakeLock) {
+      await requestWakeLock();
+    }
+    console.log('[baby] Tab visible — Wake Lock re-acquired if possible (TASK-029)');
   }
+});
+
+// ---------------------------------------------------------------------------
+// Background persistence banner (TASK-029)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deferred PWA install prompt captured from the `beforeinstallprompt` event.
+ * Stored here so we can trigger it from the banner's "Install as app" button.
+ * @type {Event|null}
+ */
+let _deferredInstallPrompt = null;
+
+// Capture the install prompt before the browser shows its own mini-infobar.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  // If the banner is already visible, reveal the install button now.
+  bgBannerPwa?.classList.remove('hidden');
+});
+
+// If the user installs the PWA, clear the deferred prompt and hide the button.
+window.addEventListener('appinstalled', () => {
+  _deferredInstallPrompt = null;
+  bgBannerPwa?.classList.add('hidden');
+  console.log('[baby] PWA installed (TASK-029)');
+});
+
+/**
+ * True once the user has tapped ✕ on the banner during this session.
+ * Prevents the banner from re-appearing if showMonitor() is called again.
+ * @type {boolean}
+ */
+let _bgBannerDismissed = false;
+
+/**
+ * Show the "keep this tab open" / install-as-app banner (TASK-029).
+ * Called when the baby monitor becomes active (i.e. after pairing succeeds).
+ * The banner is persistent but dismissible for the session.
+ */
+function showBgBanner() {
+  if (!bgBanner || _bgBannerDismissed) return;
+  bgBanner.classList.remove('hidden');
+
+  // Show install button if the install prompt is already available.
+  if (_deferredInstallPrompt) {
+    bgBannerPwa?.classList.remove('hidden');
+  }
+}
+
+// Dismiss button — hides the banner for this session (not persisted).
+bgBannerDismiss?.addEventListener('click', () => {
+  bgBanner?.classList.add('hidden');
+  _bgBannerDismissed = true;
+});
+
+// "Install as app" button — trigger the deferred install prompt.
+bgBannerInstall?.addEventListener('click', async () => {
+  if (!_deferredInstallPrompt) return;
+  _deferredInstallPrompt.prompt();
+  const { outcome } = await _deferredInstallPrompt.userChoice;
+  console.log('[baby] PWA install prompt outcome:', outcome, '(TASK-029)');
+  _deferredInstallPrompt = null;
+  bgBannerPwa?.classList.add('hidden');
 });
 
 // ---------------------------------------------------------------------------
@@ -273,6 +369,8 @@ function showMonitor() {
   babyMonitor?.classList.remove('hidden');
   disconnectedScreen?.classList.add('hidden');
   enterTouchLock();
+  // Show background persistence banner once monitoring is active (TASK-029).
+  showBgBanner();
 }
 
 function showDisconnected(reason = '') {

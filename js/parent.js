@@ -169,6 +169,12 @@ const cpVideoPaused       = document.getElementById('cp-video-paused');   // pau
 const cpScreenDim         = document.getElementById('cp-screen-dim');     // dim baby display
 const cpPowerSaver        = document.getElementById('cp-power-saver');    // reduced analysis on parent
 
+// Background persistence banner (TASK-029)
+const bgBanner            = document.getElementById('bg-banner');
+const bgBannerPwa         = document.getElementById('bg-banner-pwa');
+const bgBannerInstall     = document.getElementById('bg-banner-install');
+const bgBannerDismiss     = document.getElementById('bg-banner-dismiss');
+
 // ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
@@ -245,9 +251,35 @@ async function requestWakeLock() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Page Visibility API — background tab persistence (TASK-029)
+// ---------------------------------------------------------------------------
+//
+// When the parent monitor tab is hidden (user switches app, phone locks, etc.):
+//   • The Wake Lock is released by the OS — this is expected and unavoidable.
+//   • All WebRTC connections (monitors Map) and AudioContext graphs MUST stay
+//     alive. We deliberately do NOT close connections when the tab is hidden;
+//     doing so would drop the live video/audio stream and require re-pairing.
+//   • Browser notifications are used to deliver movement and battery alerts
+//     while the tab is in the background (see showBatteryAlert, etc.).
+//
+// When the tab becomes visible again:
+//   • Re-acquire the Wake Lock so the screen stays on during monitoring.
+//   • AudioContexts may have been suspended; they will be resumed automatically
+//     when the user interacts with the page (e.g. opens a control panel).
+
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && !wakeLock) {
-    await requestWakeLock();
+  if (document.visibilityState === 'hidden') {
+    // Tab went to background — all connections are intentionally kept alive.
+    // The Wake Lock is released automatically by the browser; we will
+    // re-request it when the tab becomes visible again.
+    console.log('[parent] Tab hidden — all WebRTC connections kept alive (TASK-029)');
+  } else if (document.visibilityState === 'visible') {
+    // Tab came back to foreground — re-acquire the Wake Lock (TASK-003).
+    if (!wakeLock) {
+      await requestWakeLock();
+    }
+    console.log('[parent] Tab visible — Wake Lock re-acquired if possible (TASK-029)');
   }
 });
 
@@ -257,6 +289,67 @@ document.addEventListener('visibilitychange', async () => {
 // called from init() above. The notification state is persisted to localStorage
 // via SETTING_KEYS.NOTIF_PROMPTED and SETTING_KEYS.NOTIF_GRANTED.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Background persistence banner (TASK-029)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deferred PWA install prompt captured from the `beforeinstallprompt` event.
+ * @type {Event|null}
+ */
+let _deferredInstallPrompt = null;
+
+// Capture the install prompt before the browser shows its own mini-infobar.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  bgBannerPwa?.classList.remove('hidden');
+});
+
+// If the user installs the PWA, clear the deferred prompt and hide the button.
+window.addEventListener('appinstalled', () => {
+  _deferredInstallPrompt = null;
+  bgBannerPwa?.classList.add('hidden');
+  console.log('[parent] PWA installed (TASK-029)');
+});
+
+/**
+ * True once the user has tapped ✕ on the banner during this session.
+ * Prevents re-showing the banner every time showDashboard() is called.
+ * @type {boolean}
+ */
+let _bgBannerDismissed = false;
+
+/**
+ * Show the "keep this tab open" / install-as-app banner (TASK-029).
+ * Called when the parent dashboard first becomes active.
+ * The banner is persistent but dismissible for the session.
+ */
+function showBgBanner() {
+  if (!bgBanner || _bgBannerDismissed) return;
+  bgBanner.classList.remove('hidden');
+
+  if (_deferredInstallPrompt) {
+    bgBannerPwa?.classList.remove('hidden');
+  }
+}
+
+// Dismiss button — hides for this session (not persisted across reloads).
+bgBannerDismiss?.addEventListener('click', () => {
+  bgBanner?.classList.add('hidden');
+  _bgBannerDismissed = true;
+});
+
+// "Install as app" button — trigger the deferred install prompt.
+bgBannerInstall?.addEventListener('click', async () => {
+  if (!_deferredInstallPrompt) return;
+  _deferredInstallPrompt.prompt();
+  const { outcome } = await _deferredInstallPrompt.userChoice;
+  console.log('[parent] PWA install prompt outcome:', outcome, '(TASK-029)');
+  _deferredInstallPrompt = null;
+  bgBannerPwa?.classList.add('hidden');
+});
 
 // ---------------------------------------------------------------------------
 // Screen helpers
@@ -271,6 +364,8 @@ function showDashboard() {
   safeSlotScreen?.classList.add('hidden');
   settingsScreen?.classList.add('hidden');
   refreshGridEmpty();
+  // Show background persistence banner once the dashboard is active (TASK-029).
+  showBgBanner();
 }
 
 function showPairing() {
@@ -1335,7 +1430,30 @@ function handleDataMessage(deviceId, msg) {
 const activeAlerts = new Set();
 
 /**
- * Display a low-battery alert banner for a device.
+ * Send a browser notification if permission is granted and the tab is hidden.
+ * Used to deliver movement, battery, and noise alerts in the background (TASK-029).
+ *
+ * @param {string} title   — Notification title
+ * @param {string} body    — Notification body text
+ * @param {string} tag     — Dedup tag (prevents the same alert spawning twice)
+ */
+function _sendBackgroundNotification(title, body, tag) {
+  // Only send when the tab is hidden so we don't duplicate in-app banners.
+  if (document.visibilityState !== 'hidden') return;
+  // Guard: Notification API must be available and permission granted.
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'granted') return;
+  if (!lsGet(SETTING_KEYS.NOTIF_GRANTED, false)) return;
+  try {
+    new Notification(title, { body, tag });
+  } catch (err) {
+    console.warn('[parent] Failed to show notification:', err);
+  }
+}
+
+/**
+ * Display a low-battery alert banner for a device and send a background
+ * notification if the tab is hidden (TASK-036, TASK-029).
  * @param {string} deviceId
  * @param {number} level
  * @param {string} label
@@ -1359,13 +1477,52 @@ function showBatteryAlert(deviceId, level, label) {
 
   alertBanners?.prepend(banner);
 
-  // Browser notification (TASK-047)
-  if (lsGet(SETTING_KEYS.NOTIF_GRANTED, false) && document.visibilityState !== 'visible') {
-    new Notification(`Baby Monitor — Low Battery`, {
-      body: `${label}: Battery is at ${level}%.`,
-      tag:  key,
-    });
-  }
+  // Background notification (TASK-029): delivered when the tab is hidden.
+  _sendBackgroundNotification(
+    'Baby Monitor — Low Battery',
+    `${label}: Battery is at ${level}%.`,
+    key,
+  );
+}
+
+/**
+ * Display a movement alert banner and send a background notification if the
+ * tab is hidden (TASK-027, TASK-029).
+ * Called by the movement detection logic (TASK-026) when motion is detected.
+ *
+ * @param {string} deviceId
+ * @param {string} label
+ */
+function showMovementAlert(deviceId, label) {
+  const key = `${deviceId}:movement`;
+  // Allow the alert to re-fire for each new movement event; do not deduplicate
+  // indefinitely — remove the existing banner (if any) before adding a new one.
+  const existing = alertBanners?.querySelector(`[data-alert-key="${escapeHtml(key)}"]`);
+  if (existing) existing.remove();
+  activeAlerts.delete(key);
+  activeAlerts.add(key);
+
+  const banner = document.createElement('div');
+  banner.className = 'alert-banner alert-banner--movement';
+  banner.setAttribute('role', 'alert');
+  banner.dataset.alertKey = key;
+  banner.innerHTML = `
+    🚶 <strong>${escapeHtml(label)}</strong>: Movement detected
+    <button class="alert-banner__dismiss" aria-label="Dismiss movement alert">✕</button>
+  `;
+  banner.querySelector('.alert-banner__dismiss')?.addEventListener('click', () => {
+    banner.remove();
+    activeAlerts.delete(key);
+  });
+
+  alertBanners?.prepend(banner);
+
+  // Background notification (TASK-029): delivered when the tab is hidden.
+  _sendBackgroundNotification(
+    'Baby Monitor — Movement Detected',
+    `${label}: Movement has been detected.`,
+    key,
+  );
 }
 
 // ---------------------------------------------------------------------------

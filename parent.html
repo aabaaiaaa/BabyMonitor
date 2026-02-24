@@ -139,6 +139,20 @@
     </div>
   </section>
 
+  <!-- Background persistence banner (TASK-029): shown when the dashboard is active.
+       Instructs the user to keep this tab open or install the PWA to ensure
+       WebRTC connections and movement/battery alerts remain active when the
+       phone screen is off or the tab is in the background. -->
+  <div id="bg-banner" class="bg-banner hidden" role="status" aria-live="polite">
+    <span class="bg-banner__icon" aria-hidden="true">📡</span>
+    <p class="bg-banner__msg">Keep this tab open to receive movement and battery alerts.
+      <span id="bg-banner-pwa" class="bg-banner__pwa hidden">
+        — or <button id="bg-banner-install" class="bg-banner__install-btn">Install as app</button> for best reliability.
+      </span>
+    </p>
+    <button id="bg-banner-dismiss" class="bg-banner__dismiss" aria-label="Dismiss">✕</button>
+  </div>
+
   <!-- Parent dashboard: shown once at least one baby is connected (TASK-021) -->
   <main id="parent-dashboard" class="parent-dashboard hidden" aria-label="Parent dashboard">
 
