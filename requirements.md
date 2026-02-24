@@ -190,7 +190,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: When movement is detected above the configured threshold, show a persistent visual alert on the parent dashboard. Use the Notifications API (`Notification.requestPermission()`) to send a browser notification if the tab is in the background or the screen is locked, so the parent is alerted even when not actively watching the app. Include the baby's label in the notification text. Allow the parent to mute movement alerts per device or globally for a set period (e.g. "Snooze alerts for 10 minutes").
 
 ### TASK-028: Implement battery-efficient streaming options
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-010
 - **Description**: Add battery conservation controls. On the baby monitor: (a) an "audio only" mode that disables the video track entirely, (b) a low-resolution/low-fps mode (e.g. 320×240 at 10 fps), and (c) a screen-off/dim mode that turns the display near-black while keeping the connection alive. On the parent monitor: (a) an option to pause receiving video (data channel command tells baby to pause video) while keeping audio and data alive, and (b) reduced analysis frequency for movement detection and noise monitoring. Document these options clearly in the UI with battery-life impact hints.

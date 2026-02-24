@@ -280,7 +280,7 @@
         <h3 id="cp-camera-label">Camera</h3>
         <button id="cp-flip-camera" class="action-btn">Flip Camera</button>
         <label class="toggle-row">
-          <span>Audio only mode</span>
+          <span>Audio only mode <span class="battery-hint">(saves ~40 % battery)</span></span>
           <input type="checkbox" id="cp-audio-only" role="switch" />
         </label>
       </section>
@@ -293,7 +293,43 @@
           <button class="quality-btn" data-quality="medium" aria-pressed="true">Medium</button>
           <button class="quality-btn" data-quality="high"   aria-pressed="false">High</button>
         </div>
-        <p class="quality-hint">Higher quality uses more battery and bandwidth.</p>
+        <p class="quality-hint">
+          <strong>Low</strong>: 320×240 @ 10 fps — best battery life.<br />
+          <strong>Medium</strong>: 640×480 @ 15 fps — balanced (default).<br />
+          <strong>High</strong>: 1280×720 @ 24 fps — uses most battery and bandwidth.
+        </p>
+      </section>
+
+      <!-- Battery saving (TASK-028) -->
+      <section class="control-group" aria-labelledby="cp-battery-label">
+        <h3 id="cp-battery-label">Battery Saving</h3>
+
+        <label class="toggle-row">
+          <span>
+            Pause baby video
+            <span class="battery-hint">(saves ~35 % battery on baby device)</span>
+          </span>
+          <input type="checkbox" id="cp-video-paused" role="switch" />
+        </label>
+        <p class="settings-hint">Stops the baby device sending video. Audio and connection stay active.</p>
+
+        <label class="toggle-row">
+          <span>
+            Dim baby screen
+            <span class="battery-hint">(saves ~30 % battery on baby device)</span>
+          </span>
+          <input type="checkbox" id="cp-screen-dim" role="switch" />
+        </label>
+        <p class="settings-hint">Fades the baby device display to near-black. Connection stays active.</p>
+
+        <label class="toggle-row">
+          <span>
+            Power saver (this device)
+            <span class="battery-hint">(reduces CPU use on parent)</span>
+          </span>
+          <input type="checkbox" id="cp-power-saver" role="switch" />
+        </label>
+        <p class="settings-hint">Reduces noise and movement analysis to ~2 fps instead of ~10 fps.</p>
       </section>
 
       <!-- Noise threshold (TASK-024) -->

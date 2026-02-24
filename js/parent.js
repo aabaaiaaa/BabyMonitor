@@ -70,6 +70,7 @@ const MAX_MONITORS = 4;
  * @property {number}        noiseThreshold
  * @property {boolean}       audioMuted
  * @property {object|null}   babyState     — TASK-025: last STATE_SNAPSHOT from baby device
+ * @property {boolean}       powerSaverMode — TASK-028: reduced analysis frequency on this monitor
  */
 
 /** @type {Map<string, MonitorEntry>} deviceId → monitor entry */
@@ -162,6 +163,11 @@ const cpFilePlay          = document.getElementById('cp-file-play');
 const cpFilePause         = document.getElementById('cp-file-pause');
 const cpFileStop          = document.getElementById('cp-file-stop');
 const cpDisconnect        = document.getElementById('cp-disconnect');
+
+// Battery-saving controls (TASK-028)
+const cpVideoPaused       = document.getElementById('cp-video-paused');   // pause video from parent
+const cpScreenDim         = document.getElementById('cp-screen-dim');     // dim baby display
+const cpPowerSaver        = document.getElementById('cp-power-saver');    // reduced analysis on parent
 
 // ---------------------------------------------------------------------------
 // Initialisation
@@ -582,6 +588,7 @@ function addMonitor(conn) {
     noiseThreshold: profile.noiseThreshold,
     audioMuted:     false,
     babyState:      null, // TASK-025: last known baby state (updated by STATE_SNAPSHOT)
+    powerSaverMode: false, // TASK-028: reduced analysis frequency
   };
 
   monitors.set(deviceId, entry);
@@ -749,8 +756,13 @@ function startNoiseVisualiser(entry) {
     if (!monitors.has(entry.deviceId)) return; // Monitor removed
 
     frameCount++;
-    // Throttle to ~10 fps (every 6th frame at 60fps)
-    if (frameCount % 6 === 0) {
+
+    // TASK-028: in power-saver mode analyse at ~2 fps (every 30th frame at 60fps)
+    // instead of the normal ~10 fps (every 6th frame).  This reduces CPU usage
+    // and indirectly reduces battery consumption on the parent device.
+    const sampleInterval = entry.powerSaverMode ? 30 : 6;
+
+    if (frameCount % sampleInterval === 0) {
       entry.analyserNode.getByteTimeDomainData(dataArray);
 
       // Compute RMS
@@ -807,6 +819,9 @@ function openControlPanel(deviceId) {
   // If no snapshot has arrived yet the panel still shows sensible defaults.
   _syncControlPanelState(entry.babyState);
 
+  // Sync TASK-028 parent-side power-saver toggle from entry state
+  if (cpPowerSaver) cpPowerSaver.checked = entry.powerSaverMode;
+
   // Restore file playback controls if a file was previously transferred to this device (TASK-013).
   const tf = _lastTransferredFile.get(deviceId);
   if (tf && cpFilePlayback) {
@@ -860,6 +875,10 @@ function _syncControlPanelState(s) {
   cpQualityBtns.forEach(b =>
     b.setAttribute('aria-pressed', b.dataset.quality === s.quality ? 'true' : 'false')
   );
+
+  // TASK-028: battery-saving state from baby device
+  if (cpScreenDim   && s.screenDim   != null) cpScreenDim.checked   = Boolean(s.screenDim);
+  if (cpVideoPaused && s.videoPaused != null) cpVideoPaused.checked = Boolean(s.videoPaused);
 }
 
 /** Get the connection for the currently open control panel. */
@@ -962,6 +981,31 @@ cpFlipCamera?.addEventListener('click', () => {
 cpAudioOnly?.addEventListener('change', () => {
   const conn = getActiveConn();
   if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_AUDIO_ONLY, cpAudioOnly.checked);
+});
+
+// TASK-028: Pause video toggle — tells baby to stop/resume its video track while
+// keeping audio and the data channel alive.
+cpVideoPaused?.addEventListener('change', () => {
+  const conn = getActiveConn();
+  if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_VIDEO_PAUSED, cpVideoPaused.checked);
+});
+
+// TASK-028: Screen dim toggle — dims the baby device display to near-black.
+// Battery hint: turning the display dark saves ~30 % battery on most phones.
+cpScreenDim?.addEventListener('change', () => {
+  const conn = getActiveConn();
+  if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_SCREEN_DIM, cpScreenDim.checked);
+});
+
+// TASK-028: Power-saver mode toggle — reduces noise analysis frequency on the
+// parent device from ~10 fps to ~2 fps.  Saves CPU and battery on the parent.
+cpPowerSaver?.addEventListener('change', () => {
+  if (!controlPanelDeviceId) return;
+  const entry = monitors.get(controlPanelDeviceId);
+  if (entry) {
+    entry.powerSaverMode = cpPowerSaver.checked;
+    console.log(`[parent] Power-saver mode ${entry.powerSaverMode ? 'on' : 'off'} for ${entry.label}`);
+  }
 });
 
 // Noise threshold

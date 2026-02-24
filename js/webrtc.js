@@ -689,4 +689,8 @@ export const MSG = {
 
   // Alert from baby to parent
   ALERT_BATTERY_LOW:  'alertBatteryLow',  // value: { level }
+
+  // Battery-efficient streaming options (TASK-028) — parent → baby
+  SET_SCREEN_DIM:     'setScreenDim',     // value: boolean — dim baby device display
+  SET_VIDEO_PAUSED:   'setVideoPaused',   // value: boolean — pause/resume video track
 };

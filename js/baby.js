@@ -62,6 +62,8 @@ const deviceId = getOrCreateDeviceId();
  * @property {boolean}     audioOnly
  * @property {string}      quality        — 'low'|'medium'|'high'
  * @property {boolean}     locked         — touch lock engaged
+ * @property {boolean}     screenDim      — TASK-028: screen dimmed to save battery
+ * @property {boolean}     videoPaused    — TASK-028: video track paused (parent-commanded)
  */
 
 /** @type {BabyState} */
@@ -74,6 +76,8 @@ const state = {
   audioOnly:     settings.audioOnly ?? false,
   quality:       settings.videoQuality ?? 'medium',
   locked:        false,
+  screenDim:     false,  // TASK-028: dimmed display mode
+  videoPaused:   false,  // TASK-028: video track paused by parent command
 };
 
 /** @type {MediaStream|null} Local camera/mic stream */
@@ -174,6 +178,7 @@ const soothingSettingsBtn = document.getElementById('soothing-settings-btn');
 const modeBtns            = babySettingsOverlay?.querySelectorAll('.mode-btn') ?? [];
 const flipCameraBtn       = document.getElementById('btn-flip-camera');
 const audioOnlyToggle     = document.getElementById('audio-only-toggle');
+const screenDimToggle     = document.getElementById('screen-dim-toggle');   // TASK-028
 const orientationSelect   = document.getElementById('orientation-select');
 const disconnectBtn       = document.getElementById('btn-disconnect');
 const settingsCloseBtn    = document.getElementById('baby-settings-close');
@@ -677,6 +682,143 @@ async function applyAudioOnlyMode(audioOnly) {
 }
 
 // ---------------------------------------------------------------------------
+// Screen dim mode (TASK-028)
+// ---------------------------------------------------------------------------
+
+/**
+ * Activate or deactivate the screen-dim mode on the baby device.
+ *
+ * When dimmed the display fades to near-black so the screen light does not
+ * disturb the baby.  The WebRTC connection (audio, video, data channel)
+ * remains fully active.  Battery impact: significant — backlight is the
+ * primary power drain on mobile devices.
+ *
+ * @param {boolean} dimmed — true = near-black display, false = normal brightness
+ */
+function applyScreenDimMode(dimmed) {
+  state.screenDim = dimmed;
+
+  // Toggle the CSS class that applies the dim overlay
+  babyMonitor?.classList.toggle('baby-monitor--screen-dim', dimmed);
+
+  // Keep the local settings toggle in sync
+  if (screenDimToggle) screenDimToggle.checked = dimmed;
+
+  sendStateSnapshot();
+}
+
+// ---------------------------------------------------------------------------
+// Quality constraint reapplication (TASK-028)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply the currently selected quality preset to the live stream.
+ *
+ * When a quality change is received (locally or from the parent via
+ * SET_QUALITY), this function re-acquires a video track at the new
+ * resolution/frame-rate and replaces the outgoing RTP track without full
+ * renegotiation.
+ *
+ * Preset mapping:
+ *   low    — 320 × 240 @ 10 fps  (~saves ~60 % battery vs high)
+ *   medium — 640 × 480 @ 15 fps  (default)
+ *   high   — 1280 × 720 @ 24 fps
+ *
+ * @param {string} quality — 'low' | 'medium' | 'high'
+ */
+async function applyQualityConstraints(quality) {
+  state.quality = quality;
+  saveSetting(SETTING_KEYS.VIDEO_QUALITY, quality);
+
+  if (state.audioOnly || !localStream) {
+    // No active video track — the new preset will be applied next time
+    // getUserMediaStream() is called.
+    sendStateSnapshot();
+    return;
+  }
+
+  try {
+    const q = QUALITY_PRESETS[quality] ?? QUALITY_PRESETS.medium;
+    // Re-acquire a video track at the new constraints
+    const newVideoStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: state.cameraFacing },
+        width:      { ideal: q.width },
+        height:     { ideal: q.height },
+        frameRate:  { ideal: q.frameRate },
+      },
+      audio: false,
+    });
+
+    const newVideoTrack = newVideoStream.getVideoTracks()[0];
+    if (!newVideoTrack) return;
+
+    // Stop old video tracks on localStream and swap in the new one
+    for (const track of localStream.getVideoTracks()) {
+      track.stop();
+      localStream.removeTrack(track);
+    }
+    localStream.addTrack(newVideoTrack);
+
+    // Replace the outgoing RTP sender track (no renegotiation required)
+    if (activeConnection?.peerConnection) {
+      const senders = activeConnection.peerConnection.getSenders();
+      const videoSender = senders.find(s => s.track?.kind === 'video' || s.track === null);
+      if (videoSender) {
+        await videoSender.replaceTrack(newVideoTrack).catch(e => {
+          console.warn('[baby] replaceTrack for quality change failed:', e);
+        });
+      }
+    }
+
+    console.log(`[baby] Quality changed to ${quality}: ${q.width}×${q.height} @ ${q.frameRate}fps`);
+  } catch (err) {
+    console.error('[baby] Could not apply quality constraints:', err);
+  }
+
+  sendStateSnapshot();
+}
+
+// ---------------------------------------------------------------------------
+// Video-paused mode (TASK-028) — parent-commanded video pause
+// ---------------------------------------------------------------------------
+
+/**
+ * Pause or resume the outgoing video track on parent's command.
+ *
+ * This is distinct from audio-only mode: video-paused is a temporary,
+ * parent-initiated state that disables video while keeping both audio and
+ * the data channel live.  The local `state.audioOnly` setting is unchanged
+ * so that toggling this off restores video automatically.
+ *
+ * @param {boolean} paused — true = stop sending video, false = resume
+ */
+async function applyVideoPaused(paused) {
+  state.videoPaused = paused;
+
+  if (!localStream || state.audioOnly) {
+    // Audio-only mode already covers this; nothing extra needed.
+    sendStateSnapshot();
+    return;
+  }
+
+  if (paused) {
+    // Disable video tracks without stopping them permanently (enabled = false
+    // keeps the track alive so it can be re-enabled without getUserMedia)
+    for (const track of localStream.getVideoTracks()) {
+      track.enabled = false;
+    }
+  } else {
+    // Re-enable all video tracks
+    for (const track of localStream.getVideoTracks()) {
+      track.enabled = true;
+    }
+  }
+
+  sendStateSnapshot();
+}
+
+// ---------------------------------------------------------------------------
 // Monitor mode
 // ---------------------------------------------------------------------------
 
@@ -691,6 +833,7 @@ function startMonitor(conn) {
   _resizeCanvas();
   // Sync settings UI to current state so toggles reflect reality when overlay opens.
   if (audioOnlyToggle) audioOnlyToggle.checked = state.audioOnly;
+  if (screenDimToggle) screenDimToggle.checked = state.screenDim;
   startBatteryMonitoring(); // TASK-020
   sendStateSnapshot();     // TASK-048
   startSoothingMode(state.soothingMode);
@@ -943,6 +1086,8 @@ function sendStateSnapshot() {
     cameraFacing:  state.cameraFacing,
     audioOnly:     state.audioOnly,
     quality:       state.quality,
+    screenDim:     state.screenDim,    // TASK-028
+    videoPaused:   state.videoPaused,  // TASK-028
   });
 }
 
@@ -1221,8 +1366,16 @@ function handleDataMessage(msg) {
       break;
 
     case MSG.SET_QUALITY:
-      state.quality = msg.value;
-      sendStateSnapshot();
+      // TASK-028: actually re-apply the new quality constraints to the live stream
+      applyQualityConstraints(msg.value);
+      break;
+
+    case MSG.SET_SCREEN_DIM: // TASK-028
+      applyScreenDimMode(Boolean(msg.value));
+      break;
+
+    case MSG.SET_VIDEO_PAUSED: // TASK-028
+      applyVideoPaused(Boolean(msg.value));
       break;
 
     case MSG.SPEAK_START:
@@ -1469,6 +1622,11 @@ audioOnlyToggle?.addEventListener('change', () => {
   if (activeConnection?.dataChannel) {
     sendMessage(activeConnection.dataChannel, MSG.SET_AUDIO_ONLY, enabled);
   }
+});
+
+// Screen dim toggle (TASK-028): dims the display to near-black to save battery.
+screenDimToggle?.addEventListener('change', () => {
+  applyScreenDimMode(screenDimToggle.checked);
 });
 
 orientationSelect?.addEventListener('change', () => {

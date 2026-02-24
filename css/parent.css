@@ -878,3 +878,15 @@
   line-height: 1.5;
   max-width: 38ch;
 }
+
+/* --------------------------------------------------------------------------
+   Battery-saving section (TASK-028)
+   Control panel section with toggle rows for battery-saving options.
+   -------------------------------------------------------------------------- */
+
+/* Spacing between battery-saving toggle rows */
+#control-panel .control-group [id^="cp-video-paused"] + .settings-hint,
+#control-panel .control-group [id^="cp-screen-dim"]   + .settings-hint,
+#control-panel .control-group [id^="cp-power-saver"]  + .settings-hint {
+  margin-bottom: var(--space-md);
+}

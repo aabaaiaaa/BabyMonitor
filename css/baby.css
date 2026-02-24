@@ -311,6 +311,33 @@ body.baby-screen .pairing-step__desc {
 }
 
 /* --------------------------------------------------------------------------
+   Screen-dim mode (TASK-028)
+   Activated by .baby-monitor--screen-dim — dims the display to near-black to
+   conserve battery while keeping audio, video and connection live.
+   The overlay sits above the soothing canvas but below the settings controls
+   so the user can still reach the triple-tap unlock and settings button.
+   -------------------------------------------------------------------------- */
+.baby-monitor--screen-dim::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.97);
+  z-index: var(--z-overlay);
+  pointer-events: none; /* Pass touches through to the monitor underneath */
+  transition: opacity 0.5s ease;
+}
+
+/* Keep the settings overlay and status indicators above the dim layer */
+.baby-monitor--screen-dim .baby-status,
+.baby-monitor--screen-dim .soothing-settings-btn,
+.baby-monitor--screen-dim .baby-settings-overlay,
+.baby-monitor--screen-dim .touch-lock-hint,
+.baby-monitor--screen-dim .baby-transfer-status {
+  z-index: calc(var(--z-overlay) + 1);
+  position: relative;
+}
+
+/* --------------------------------------------------------------------------
    Responsive overrides for baby view
    -------------------------------------------------------------------------- */
 @media (min-width: 768px) {

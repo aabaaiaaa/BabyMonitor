@@ -172,9 +172,19 @@
           <h3 id="camera-label">Camera</h3>
           <button id="btn-flip-camera" class="action-btn">Flip Camera</button>
           <label class="toggle-row">
-            <span>Audio only (save battery)</span>
+            <span>Audio only <span class="battery-hint">(saves ~40 % battery)</span></span>
             <input type="checkbox" id="audio-only-toggle" role="switch" />
           </label>
+        </section>
+
+        <!-- Battery-saving options (TASK-028) -->
+        <section class="settings-group" aria-labelledby="battery-saving-label">
+          <h3 id="battery-saving-label">Battery Saving</h3>
+          <label class="toggle-row">
+            <span>Dim screen <span class="battery-hint">(saves ~30 % battery)</span></span>
+            <input type="checkbox" id="screen-dim-toggle" role="switch" />
+          </label>
+          <p class="settings-hint">Dims this display to near-black. Audio, video and connection stay active.</p>
         </section>
 
         <section class="settings-group" aria-labelledby="orientation-label">

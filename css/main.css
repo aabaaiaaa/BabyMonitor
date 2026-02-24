@@ -978,6 +978,28 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   Battery hint text (TASK-028)
+   Inline note shown next to toggle labels to indicate battery-saving impact.
+   -------------------------------------------------------------------------- */
+.battery-hint {
+  font-size: 0.75rem;
+  color: var(--color-success);
+  font-weight: normal;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   Settings hint (TASK-028)
+   Small explanatory text below a control in a settings group.
+   -------------------------------------------------------------------------- */
+.settings-hint {
+  margin: var(--space-xs) 0 var(--space-sm);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
    Animations
    -------------------------------------------------------------------------- */
 @keyframes fade-in {
