@@ -210,7 +210,17 @@
          aria-labelledby="control-panel-title">
     <div class="control-panel__inner">
       <div class="control-panel__header">
-        <h2 id="control-panel-title" class="control-panel__title">Controls</h2>
+        <div class="control-panel__title-wrap">
+          <h2 id="control-panel-title" class="control-panel__title">Controls</h2>
+          <button id="cp-rename-btn" class="icon-btn cp-rename-btn" aria-label="Rename this monitor" title="Rename">✏️</button>
+        </div>
+        <!-- Inline rename form: hidden until the rename button is tapped (TASK-023) -->
+        <form id="cp-rename-form" class="cp-rename-form hidden" aria-label="Rename monitor">
+          <input type="text" id="cp-rename-input" class="cp-rename-input"
+                 maxlength="40" aria-label="New monitor name" autocomplete="off" />
+          <button type="submit" class="action-btn action-btn--small">Save</button>
+          <button type="button" id="cp-rename-cancel" class="action-btn action-btn--small action-btn--secondary">Cancel</button>
+        </form>
         <button id="control-panel-close" class="icon-btn" aria-label="Close controls">✕</button>
       </div>
 
@@ -442,6 +452,19 @@
           <button id="btn-clear-turn" class="action-btn action-btn--secondary">Clear</button>
         </div>
         <p class="settings-status" id="turn-status" aria-live="polite"></p>
+      </section>
+
+      <!-- Saved devices management (TASK-023) -->
+      <section class="settings-group" aria-labelledby="saved-devices-label">
+        <h3 id="saved-devices-label">Saved Devices</h3>
+        <p class="settings-group__desc">
+          Previously paired baby monitors. Labels are automatically restored when a
+          recognised device reconnects. You can rename or remove saved devices here.
+        </p>
+        <div id="saved-devices-list" class="saved-devices-list" aria-label="Saved devices" aria-live="polite">
+          <!-- Populated dynamically by js/parent.js -->
+        </div>
+        <p class="settings-status" id="saved-devices-status" aria-live="polite"></p>
       </section>
 
       <!-- Custom PeerJS server configuration (TASK-008) -->

@@ -160,7 +160,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Allow the parent monitor to maintain simultaneous WebRTC connections to multiple baby monitor devices, up to a maximum of 4. Each connection is initiated via a separate QR code pairing session. The parent dashboard dynamically adds a new panel for each connected baby monitor. Implement connection management so each baby monitor has its own data channel and media stream. Provide a button to add a new baby monitor (initiating a new pairing session) without interrupting existing connections. When 4 baby monitors are already connected, disable the "Add baby monitor" button and show a tooltip explaining the limit. If a device disconnects, the slot becomes available again.
 
 ### TASK-023: Implement baby monitor labelling and local storage persistence
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-022
 - **Description**: Allow the parent to assign a label to each baby monitor (e.g. "Nursery", "Alice's Room"). Store this label alongside any saved configuration for that device in `localStorage`. On the baby monitor device, assign it a unique device ID (stored in `localStorage`) that is included in its data channel messages. The parent stores a mapping of device ID to label. On subsequent pairing sessions, if the device ID is recognised, automatically restore the saved label. Provide a settings UI for managing saved devices (rename, delete).

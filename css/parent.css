@@ -475,17 +475,70 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-sm);
   padding: max(var(--space-md), env(safe-area-inset-top)) var(--space-md) var(--space-md);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-surface);
   position: sticky;
   top: 0;
   z-index: 1;
+  flex-wrap: wrap;
+}
+
+/* Title row: label text + rename pencil button (TASK-023) */
+.control-panel__title-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: 1;
+  min-width: 0;
 }
 
 .control-panel__title {
   font-size: var(--font-size-lg);
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Inline rename button — subtle pencil icon next to the title */
+.cp-rename-btn {
+  font-size: var(--font-size-sm);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.cp-rename-btn:hover,
+.cp-rename-btn:focus-visible {
+  opacity: 1;
+}
+
+/* Inline rename form (TASK-023): shown when user taps ✏️ */
+.cp-rename-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+}
+
+.cp-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: inherit;
+}
+
+.cp-rename-input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+  border-color: var(--color-primary);
 }
 
 /* Control groups within the panel */
@@ -914,4 +967,86 @@
 #control-panel .control-group [id^="cp-screen-dim"]   + .settings-hint,
 #control-panel .control-group [id^="cp-power-saver"]  + .settings-hint {
   margin-bottom: var(--space-md);
+}
+
+/* --------------------------------------------------------------------------
+   Saved devices list — settings screen (TASK-023)
+   -------------------------------------------------------------------------- */
+
+.saved-devices-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.saved-devices-empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+/* One row per saved device */
+.saved-device-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.saved-device-row__info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.saved-device-row__label {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  flex: 1;
+  word-break: break-word;
+}
+
+.saved-device-row__status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #2d8a4e;
+  background: #d4edda;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+.dark-mode .saved-device-row__status {
+  color: #6fcf97;
+  background: #1b3a28;
+}
+
+.saved-device-row__display {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+/* Inline rename form within a saved-device-row */
+.saved-device-row__rename-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.saved-device-row__rename-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Dark mode adjustments */
+.dark-mode .saved-device-row {
+  background: var(--color-bg-surface);
 }

@@ -28,7 +28,7 @@
 
 import {
   lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS,
-  getDeviceProfile, saveDeviceProfile,
+  getDeviceProfile, saveDeviceProfile, getDeviceProfiles, deleteDeviceProfile,
 } from './storage.js';
 import { renderSafeSleepContent } from './safe-sleep.js';
 import {
@@ -193,6 +193,12 @@ const cpDisconnect        = document.getElementById('cp-disconnect');
 const cpVideoPaused       = document.getElementById('cp-video-paused');   // pause video from parent
 const cpScreenDim         = document.getElementById('cp-screen-dim');     // dim baby display
 const cpPowerSaver        = document.getElementById('cp-power-saver');    // reduced analysis on parent
+
+// Device rename controls (TASK-023)
+const cpRenameBtn         = document.getElementById('cp-rename-btn');
+const cpRenameForm        = document.getElementById('cp-rename-form');
+const cpRenameInput       = document.getElementById('cp-rename-input');
+const cpRenameCancel      = document.getElementById('cp-rename-cancel');
 
 // Background persistence banner (TASK-029)
 const bgBanner            = document.getElementById('bg-banner');
@@ -1082,6 +1088,9 @@ function openControlPanel(deviceId) {
   if (cpSendAudio)        cpSendAudio.disabled = true;
   if (cpTransferProgress) cpTransferProgress.classList.add('hidden');
 
+  // Reset the rename form so it is hidden when the panel opens (TASK-023).
+  cpRenameForm?.classList.add('hidden');
+
   controlPanel?.classList.remove('hidden');
 }
 
@@ -1092,6 +1101,174 @@ function closeControlPanel() {
   controlPanelDeviceId = null;
   stopScanner();
 }
+
+// ---------------------------------------------------------------------------
+// Device labelling (TASK-023)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rename a baby monitor — updates in-memory entry, persisted device profile,
+ * monitor panel label, and control panel title.
+ *
+ * @param {string} deviceId — the device to rename
+ * @param {string} newLabel — the new user-assigned label (trimmed before use)
+ */
+function _renameMonitor(deviceId, newLabel) {
+  const label = newLabel.trim();
+  if (!label) return;
+
+  // Update in-memory entry
+  const entry = monitors.get(deviceId);
+  if (entry) {
+    entry.label = label;
+    // Update panel label in the DOM
+    const labelEl = entry.panelEl?.querySelector('.monitor-panel__label');
+    if (labelEl) labelEl.textContent = label;
+    // Update accessibility attribute
+    entry.panelEl?.setAttribute('aria-label', `Baby monitor: ${label}`);
+    const videoEl = entry.panelEl?.querySelector('.monitor-panel__video');
+    if (videoEl) videoEl.setAttribute('aria-label', `Video from ${label}`);
+    const controlsBtn = entry.panelEl?.querySelector('.monitor-panel__controls-btn');
+    if (controlsBtn) controlsBtn.setAttribute('aria-label', `Open controls for ${label}`);
+  }
+
+  // Update control panel title if currently open for this device
+  if (controlPanelDeviceId === deviceId && controlPanelTitle) {
+    controlPanelTitle.textContent = `Controls — ${label}`;
+  }
+
+  // Persist to device profile
+  const profile = getDeviceProfile(deviceId);
+  if (profile) {
+    saveDeviceProfile({ ...profile, label });
+  } else {
+    saveDeviceProfile({ id: deviceId, label, noiseThreshold: 60, motionThreshold: 50, batteryThreshold: 15, backupPoolJson: null });
+  }
+}
+
+/**
+ * Render the list of saved device profiles into the settings screen.
+ * Called each time the settings screen is opened.
+ */
+function _renderSavedDevices() {
+  const listEl = document.getElementById('saved-devices-list');
+  const statusEl = document.getElementById('saved-devices-status');
+  if (!listEl) return;
+
+  const profiles = getDeviceProfiles();
+  listEl.innerHTML = '';
+
+  if (profiles.length === 0) {
+    listEl.innerHTML = '<p class="saved-devices-empty">No saved devices. Pair a baby monitor to save it.</p>';
+    return;
+  }
+
+  for (const profile of profiles) {
+    const isConnected = monitors.has(profile.id);
+    const row = document.createElement('div');
+    row.className = 'saved-device-row';
+    row.dataset.deviceId = profile.id;
+
+    row.innerHTML = `
+      <div class="saved-device-row__info">
+        <span class="saved-device-row__label">${escapeHtml(profile.label)}</span>
+        ${isConnected ? '<span class="saved-device-row__status">Connected</span>' : ''}
+      </div>
+      <div class="saved-device-row__display">
+        <button class="action-btn action-btn--small saved-device-row__rename-btn"
+                aria-label="Rename ${escapeHtml(profile.label)}">Rename</button>
+        <button class="action-btn action-btn--small action-btn--danger saved-device-row__delete-btn"
+                aria-label="Delete saved device ${escapeHtml(profile.label)}">Delete</button>
+      </div>
+      <form class="saved-device-row__rename-form hidden" aria-label="Rename device">
+        <input type="text" class="saved-device-row__rename-input cp-rename-input"
+               value="${escapeHtml(profile.label)}" maxlength="40"
+               aria-label="New name for ${escapeHtml(profile.label)}"
+               autocomplete="off" />
+        <button type="submit" class="action-btn action-btn--small">Save</button>
+        <button type="button" class="action-btn action-btn--small action-btn--secondary saved-device-row__rename-cancel">Cancel</button>
+      </form>
+    `;
+
+    // Rename button — show inline form
+    row.querySelector('.saved-device-row__rename-btn')?.addEventListener('click', () => {
+      const form = row.querySelector('.saved-device-row__rename-form');
+      const display = row.querySelector('.saved-device-row__display');
+      form?.classList.remove('hidden');
+      display?.classList.add('hidden');
+      form?.querySelector('input')?.focus();
+    });
+
+    // Cancel button inside inline form
+    row.querySelector('.saved-device-row__rename-cancel')?.addEventListener('click', () => {
+      const form = row.querySelector('.saved-device-row__rename-form');
+      const display = row.querySelector('.saved-device-row__display');
+      form?.classList.add('hidden');
+      display?.classList.remove('hidden');
+    });
+
+    // Submit rename form
+    row.querySelector('.saved-device-row__rename-form')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = row.querySelector('.saved-device-row__rename-input');
+      const newLabel = input?.value.trim() ?? '';
+      if (!newLabel) return;
+      _renameMonitor(profile.id, newLabel);
+      // Update the displayed label in this row and close the form
+      const labelEl = row.querySelector('.saved-device-row__label');
+      if (labelEl) labelEl.textContent = newLabel;
+      const form = row.querySelector('.saved-device-row__rename-form');
+      const display = row.querySelector('.saved-device-row__display');
+      form?.classList.add('hidden');
+      display?.classList.remove('hidden');
+      if (statusEl) {
+        statusEl.textContent = `Renamed to "${newLabel}".`;
+        statusEl.className = 'settings-status settings-status--success';
+        setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+      }
+    });
+
+    // Delete button — remove from storage (does not disconnect an active session)
+    row.querySelector('.saved-device-row__delete-btn')?.addEventListener('click', () => {
+      deleteDeviceProfile(profile.id);
+      row.remove();
+      // If now empty, show the empty-state message
+      if (listEl.querySelectorAll('.saved-device-row').length === 0) {
+        listEl.innerHTML = '<p class="saved-devices-empty">No saved devices. Pair a baby monitor to save it.</p>';
+      }
+      if (statusEl) {
+        statusEl.textContent = `Removed "${profile.label}".`;
+        statusEl.className = 'settings-status';
+        setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+      }
+    });
+
+    listEl.appendChild(row);
+  }
+}
+
+// Wire up the control-panel rename button (TASK-023)
+cpRenameBtn?.addEventListener('click', () => {
+  if (!controlPanelDeviceId) return;
+  const entry = monitors.get(controlPanelDeviceId);
+  if (!entry) return;
+  if (cpRenameInput) cpRenameInput.value = entry.label;
+  cpRenameForm?.classList.remove('hidden');
+  cpRenameInput?.focus();
+});
+
+cpRenameCancel?.addEventListener('click', () => {
+  cpRenameForm?.classList.add('hidden');
+});
+
+cpRenameForm?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!controlPanelDeviceId) return;
+  const newLabel = cpRenameInput?.value.trim() ?? '';
+  if (!newLabel) return;
+  _renameMonitor(controlPanelDeviceId, newLabel);
+  cpRenameForm?.classList.add('hidden');
+});
 
 /**
  * Sync all control-panel UI controls to a baby device state snapshot (TASK-025).
@@ -1997,6 +2174,9 @@ function _syncSettingsScreen() {
     peerjsStatusEl.textContent = peerjsConfig?.host ? 'Custom PeerJS server configured.' : '';
     peerjsStatusEl.className   = peerjsConfig?.host ? 'settings-status settings-status--success' : 'settings-status';
   }
+
+  // Saved devices list (TASK-023)
+  _renderSavedDevices();
 }
 
 // Wire up speak mode radio buttons

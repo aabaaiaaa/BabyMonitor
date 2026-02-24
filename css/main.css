@@ -1220,6 +1220,13 @@ textarea {
   color: var(--color-text-inverse);
 }
 
+/* Compact action button variant — smaller padding/font for inline use */
+.action-btn--small {
+  min-height: unset;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
 /* Inline status / feedback line shown after saving settings */
 .settings-status {
   margin-top: var(--space-xs);
