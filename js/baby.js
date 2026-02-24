@@ -870,7 +870,17 @@ function setupStatusFade() {
 // ---------------------------------------------------------------------------
 
 async function startBatteryMonitoring() {
-  if (!('getBattery' in navigator)) return;
+  if (!('getBattery' in navigator)) {
+    // Battery Status API not supported — tell the parent so it shows "unknown"
+    if (activeConnection?.dataChannel) {
+      sendMessage(activeConnection.dataChannel, MSG.BATTERY_LEVEL, { level: null, charging: null });
+    }
+    if (babyBattery) {
+      babyBattery.textContent = '?';
+      babyBattery.setAttribute('aria-label', 'Battery level unknown');
+    }
+    return;
+  }
 
   try {
     const battery = await navigator.getBattery();
@@ -907,6 +917,14 @@ async function startBatteryMonitoring() {
     setInterval(broadcast, 60_000); // Periodic broadcast every 60s
   } catch (err) {
     console.warn('[baby] Battery API not available:', err);
+    // Notify parent that battery level cannot be determined
+    if (activeConnection?.dataChannel) {
+      sendMessage(activeConnection.dataChannel, MSG.BATTERY_LEVEL, { level: null, charging: null });
+    }
+    if (babyBattery) {
+      babyBattery.textContent = '?';
+      babyBattery.setAttribute('aria-label', 'Battery level unknown');
+    }
   }
 }
 

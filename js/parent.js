@@ -1124,13 +1124,21 @@ function handleDataMessage(deviceId, msg) {
       if (!entry) break;
       const batteryEl = entry.panelEl?.querySelector('.panel-battery');
       if (batteryEl) {
-        batteryEl.textContent = `${level}%${charging ? '⚡' : ''}`;
+        if (level == null) {
+          batteryEl.textContent = '?';
+          batteryEl.title = 'Battery level unknown';
+        } else {
+          batteryEl.textContent = `${level}%${charging ? '⚡' : ''}`;
+          batteryEl.title = `Battery: ${level}%${charging ? ' (charging)' : ''}`;
+        }
       }
-      // Low battery alert (TASK-036)
-      const profile = getDeviceProfile(deviceId);
-      const threshold = profile?.batteryThreshold ?? 15;
-      if (level < threshold && !charging) {
-        showBatteryAlert(deviceId, level, entry.label);
+      // Low battery alert (TASK-036) — only when level is known
+      if (level != null) {
+        const profile = getDeviceProfile(deviceId);
+        const threshold = profile?.batteryThreshold ?? 15;
+        if (level < threshold && !charging) {
+          showBatteryAlert(deviceId, level, entry.label);
+        }
       }
       break;
     }

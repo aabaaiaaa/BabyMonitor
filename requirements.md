@@ -142,7 +142,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Bundle a small selection of soothing audio files (e.g. white noise, lullaby, rain sounds — royalty-free) within the app's cached assets. On the baby monitor, implement an audio player using the Web Audio API that loops the selected track. The player is controlled either locally or remotely via the data channel. Integrate the fade-out timer (TASK-014) into this local player. When in music mode, the screen should dim to near-black to save battery while audio plays.
 
 ### TASK-020: Implement battery level monitoring and broadcast on baby monitor
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-009
 - **Description**: Use the Battery Status API (`navigator.getBattery()`) on the baby monitor device to read the current battery level and charging state. Broadcast this information to the parent via the data channel as a periodic status update (e.g. every 60 seconds or when the level changes by more than 2%). Handle the case where the Battery Status API is not available (show "unknown" on the parent side). The baby monitor should also display a low-battery warning locally when the level drops below 20%.

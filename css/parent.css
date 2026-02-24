@@ -334,6 +334,14 @@
   color: var(--color-text-muted);
 }
 
+/* Battery level badge in monitor panel header (TASK-020) */
+.panel-battery {
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
 /* Panel video area */
 .monitor-panel__video-wrap {
   position: relative;
