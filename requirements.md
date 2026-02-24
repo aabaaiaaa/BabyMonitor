@@ -136,7 +136,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Implement a fullscreen canvas-based starfield or projected-stars effect. Render a dark background with many small, softly glowing dots that twinkle gently using opacity animation. Optionally add a slow rotation or drift to simulate a projected star night-light. Keep the colour palette to deep blues, purples, and white/silver. Keep the rendering lightweight.
 
 ### TASK-019: Implement soothing music playback on baby monitor
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-015, TASK-037
 - **Description**: Bundle a small selection of soothing audio files (e.g. white noise, lullaby, rain sounds — royalty-free) within the app's cached assets. On the baby monitor, implement an audio player using the Web Audio API that loops the selected track. The player is controlled either locally or remotely via the data channel. Integrate the fade-out timer (TASK-014) into this local player. When in music mode, the screen should dim to near-black to save battery while audio plays.

@@ -18,7 +18,7 @@
  *   - https://cdn.jsdelivr.net      (jsQR, PeerJS)
  */
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME    = `baby-monitor-${CACHE_VERSION}`;
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ const APP_ASSETS = [
   './css/parent.css',
   './js/main.js',
   './js/baby.js',
+  './js/music-player.js',
   './js/parent.js',
   './js/qr.js',
   './js/webrtc.js',

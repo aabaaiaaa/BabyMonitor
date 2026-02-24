@@ -241,12 +241,26 @@ body.baby-screen {
 }
 
 /* --------------------------------------------------------------------------
-   Music mode visual indicator (TASK-015)
-   When soothing mode is "music" the canvas is kept near-black; a faint
-   label in the status area hints that music is playing.
+   Music mode — near-black display (TASK-019)
+   When soothing mode is "music" the canvas is kept near-black and a
+   screen-dim overlay is applied automatically by JS.  The CSS below
+   reinforces the dim state so the display reaches near-black even on
+   bright / HDR panels, and keeps the status indicators visible above
+   the overlay (matching the TASK-028 screen-dim rules).
    -------------------------------------------------------------------------- */
 .baby-monitor[data-soothing-mode="music"] .soothing-canvas {
   background: #030303 !important;
+}
+
+/* The JS _startMusicMode() adds .baby-monitor--screen-dim; the rules below
+   ensure music-mode elements stay visible above the dim overlay layer. */
+.baby-monitor[data-soothing-mode="music"] .baby-status,
+.baby-monitor[data-soothing-mode="music"] .soothing-settings-btn,
+.baby-monitor[data-soothing-mode="music"] .baby-settings-overlay,
+.baby-monitor[data-soothing-mode="music"] .touch-lock-hint,
+.baby-monitor[data-soothing-mode="music"] .baby-transfer-status {
+  z-index: calc(var(--z-overlay) + 1);
+  position: relative;
 }
 
 /* --------------------------------------------------------------------------

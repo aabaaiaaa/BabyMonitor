@@ -41,6 +41,15 @@ import {
   scanAuto, scanSingle, scanMulti, stopScanner,
 } from './qr.js';
 import { showCompatWarnings } from './browser-compat.js';
+import {
+  attachMusicPlayer,
+  playTrack as _mpPlayTrack,
+  stopTrack as _mpStopTrack,
+  switchTrack as _mpSwitchTrack,
+  fadeOutAndStop as _mpFadeOutAndStop,
+  isMusicPlaying as _mpIsPlaying,
+  BUILTIN_TRACKS,
+} from './music-player.js';
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -142,6 +151,31 @@ let _audioStart   = 0;
 
 /** @type {number} Playback offset (seconds) saved when the audio is paused. */
 let _audioOffset  = 0;
+
+// ---------------------------------------------------------------------------
+// Music player state (TASK-019)
+// ---------------------------------------------------------------------------
+
+/**
+ * True once the music-player module has been attached to _audioCtx.
+ * Prevents re-attachment on every call to _startMusicMode().
+ * @type {boolean}
+ */
+let _musicPlayerAttached = false;
+
+/**
+ * setInterval ID for the fade-out countdown timer (TASK-014 / TASK-019).
+ * Null when no timer is running.
+ * @type {number|null}
+ */
+let _fadeTimerIntervalId = null;
+
+/**
+ * True if music mode automatically applied the screen-dim overlay.
+ * Used to restore the previous dim state when leaving music mode.
+ * @type {boolean}
+ */
+let _musicModeDimApplied = false;
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -1168,6 +1202,11 @@ function startSoothingMode(mode) {
     _animFrame = null;
   }
 
+  // Stop music if we are leaving music mode (TASK-019).
+  if (state.soothingMode === 'music' && mode !== 'music') {
+    _stopMusicMode();
+  }
+
   state.soothingMode = mode;
 
   // Expose current mode on the monitor element for CSS targeting (e.g. music
@@ -1691,11 +1730,136 @@ function _startStarsEffect() {
   _animFrame = requestAnimationFrame(drawFrame);
 }
 
-/** Music mode stub (TASK-019). */
-function _startMusicMode() {
+/**
+ * Music mode (TASK-019).
+ *
+ * Dims the canvas to near-black and starts looped playback of the selected
+ * (or default) bundled soothing track via the Web Audio API.
+ *
+ * The screen dims automatically through CSS targeting
+ * .baby-monitor[data-soothing-mode="music"] — no class toggle required here.
+ * Additionally, the screen-dim overlay is applied programmatically so that
+ * the display reaches near-black even on bright/HDR panels.
+ *
+ * Audio is routed through _audioGain (the shared master volume node) so
+ * MSG.SET_VOLUME changes apply to bundled tracks just as they do to received
+ * file audio.
+ */
+async function _startMusicMode() {
   _clearCanvas();
-  // Dim the screen; start audio playback in TASK-019
-  soothingCanvas.style.background = '#050505';
+
+  // Apply the screen-dim overlay (TASK-019 requirement: dim to near-black
+  // while audio plays).  We save any pre-existing dim preference so that
+  // leaving music mode restores the original state.
+  if (!state.screenDim) {
+    babyMonitor?.classList.add('baby-monitor--screen-dim');
+    // _musicModeDimApplied tracks that WE toggled it; used by _stopMusicMode().
+    _musicModeDimApplied = true;
+  }
+
+  try {
+    await _ensureAudioCtx();
+
+    // Attach the music player to the shared AudioContext on first use.
+    if (!_musicPlayerAttached && _audioCtx && _audioGain) {
+      attachMusicPlayer(_audioCtx, _audioGain);
+      _musicPlayerAttached = true;
+    }
+
+    // Use the saved track or fall back to white noise.
+    const track = state.currentTrack ?? BUILTIN_TRACKS[0];
+    state.currentTrack = track;
+    _mpPlayTrack(track);
+
+    console.log('[baby] Music mode started — track:', track, '(TASK-019)');
+  } catch (err) {
+    console.error('[baby] Failed to start music mode:', err);
+  }
+}
+
+/**
+ * Stop music playback and remove the auto-applied screen-dim overlay.
+ * Called by startSoothingMode() when switching away from music mode.
+ */
+function _stopMusicMode() {
+  _mpStopTrack();
+
+  // Only remove the dim overlay if music mode was the one that applied it.
+  if (_musicModeDimApplied) {
+    babyMonitor?.classList.remove('baby-monitor--screen-dim');
+    _musicModeDimApplied = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fade-out timer (TASK-014 / TASK-019)
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the fade-out countdown timer.
+ *
+ * Counts down `seconds` seconds, broadcasting STATE_SNAPSHOT on each tick
+ * so the parent dashboard can show a live countdown.  When the timer reaches
+ * zero the music fades out gracefully over 3 seconds (if music mode is
+ * active) and state.soothingMode is set to 'off'.
+ *
+ * Cancels any previously running timer before starting.
+ *
+ * @param {number} seconds — countdown duration (0 = cancel)
+ */
+function startFadeTimer(seconds) {
+  cancelFadeTimer();
+  if (seconds <= 0) return;
+
+  state.fadeRemaining = seconds;
+  sendStateSnapshot();
+
+  _fadeTimerIntervalId = setInterval(() => {
+    if (state.fadeRemaining > 0) {
+      state.fadeRemaining--;
+      sendStateSnapshot();
+    }
+
+    if (state.fadeRemaining <= 0) {
+      // Timer expired — fade out music and turn off soothing mode.
+      clearInterval(_fadeTimerIntervalId);
+      _fadeTimerIntervalId = null;
+
+      console.log('[baby] Fade timer expired — stopping music (TASK-019)');
+
+      if (state.soothingMode === 'music' && _mpIsPlaying()) {
+        // Graceful 3-second audio fade, then switch mode to 'off'.
+        _mpFadeOutAndStop(3).then(() => {
+          if (state.soothingMode === 'music') {
+            // Remove dim overlay applied by music mode.
+            if (_musicModeDimApplied) {
+              babyMonitor?.classList.remove('baby-monitor--screen-dim');
+              _musicModeDimApplied = false;
+            }
+            state.soothingMode = 'off';
+            babyMonitor?.setAttribute('data-soothing-mode', 'off');
+            _clearCanvas();
+            sendStateSnapshot();
+          }
+        });
+      } else {
+        // Not in music mode — just turn off soothing.
+        startSoothingMode('off');
+        sendStateSnapshot();
+      }
+    }
+  }, 1000);
+}
+
+/**
+ * Cancel the active fade-out timer (if any) and reset fadeRemaining to 0.
+ */
+function cancelFadeTimer() {
+  if (_fadeTimerIntervalId !== null) {
+    clearInterval(_fadeTimerIntervalId);
+    _fadeTimerIntervalId = null;
+  }
+  state.fadeRemaining = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -2055,7 +2219,8 @@ function handleDataMessage(msg) {
 
     case MSG.SET_VOLUME:
       state.musicVolume = msg.value;
-      // Apply to the file-playback GainNode if active (TASK-013)
+      // Apply to the master GainNode — covers both file-transfer audio (TASK-013)
+      // and bundled soothing tracks (TASK-019) which share the same gain node.
       if (_audioGain && _audioCtx) {
         _audioGain.gain.setTargetAtTime(
           state.musicVolume / 100,
@@ -2063,25 +2228,32 @@ function handleDataMessage(msg) {
           0.05, // 50 ms smoothing
         );
       }
-      // Also applied to bundled tracks GainNode in TASK-019
       sendStateSnapshot();
       break;
 
     case MSG.SET_TRACK:
+      // Update track state and switch playback if music mode is active (TASK-019).
       state.currentTrack = msg.value;
-      // Switch track in TASK-019
+      if (state.soothingMode === 'music' && msg.value) {
+        if (_musicPlayerAttached) {
+          _mpSwitchTrack(msg.value);
+        } else {
+          // Music player not yet attached — start the mode fresh.
+          _startMusicMode();
+        }
+      }
       sendStateSnapshot();
       break;
 
     case MSG.SET_FADE_TIMER:
-      state.fadeRemaining = msg.value;
-      // Start timer in TASK-014
+      // Start the fade-out countdown timer (TASK-019 / TASK-014).
+      startFadeTimer(Number(msg.value));
       sendStateSnapshot();
       break;
 
     case MSG.CANCEL_FADE:
-      state.fadeRemaining = 0;
-      // Cancel timer in TASK-014
+      // Cancel the active fade timer (TASK-019 / TASK-014).
+      cancelFadeTimer();
       sendStateSnapshot();
       break;
 
