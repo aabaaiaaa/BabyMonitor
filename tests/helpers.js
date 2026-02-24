@@ -157,6 +157,86 @@ async function setLocalStorage(page, key, value) {
   );
 }
 
+/**
+ * Pre-set the notification-prompted flag so the parent's permission screen is
+ * skipped in tests.  Must be called after goto() but before clicking the overlay.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function skipNotifications(page) {
+  await page.evaluate(() => {
+    localStorage.setItem('bm:notifprompted', JSON.stringify(true));
+  });
+}
+
+/**
+ * Dismiss the tap-to-begin overlay.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function tapToBegin(page) {
+  await page.click('#tap-overlay');
+}
+
+/**
+ * Drive the baby page through tap-to-begin and Quick Pair (PeerJS) selection,
+ * then wait for the peer ID to appear.  Returns the peer ID string.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {number} [peerJsTimeoutMs=15000]
+ * @returns {Promise<string>}
+ */
+async function setupBabyPeerJs(page, peerJsTimeoutMs = 15_000) {
+  await tapToBegin(page);
+  await page.waitForSelector('#pairing-section:not(.hidden)', { timeout: 5_000 });
+  await page.click('#method-peerjs');
+  await page.waitForFunction(
+    () => {
+      const el = document.getElementById('peerjs-peer-id');
+      return el != null && el.textContent.trim().length > 0;
+    },
+    { timeout: peerJsTimeoutMs },
+  );
+  return page.evaluate(
+    () => document.getElementById('peerjs-peer-id')?.textContent?.trim() ?? '',
+  );
+}
+
+/**
+ * Drive the parent page through tap-to-begin and Quick Pair (PeerJS) selection,
+ * injecting the baby's peer ID as the QR-scan result so no camera is required.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} babyPeerId
+ */
+async function setupParentPeerJs(page, babyPeerId) {
+  await skipNotifications(page);
+  await tapToBegin(page);
+  await page.waitForSelector('#pairing-section:not(.hidden)', { timeout: 5_000 });
+  await page.evaluate((id) => { window.__TEST_SCAN_RESULT = id; }, babyPeerId);
+  await page.click('#method-peerjs');
+}
+
+/**
+ * Wait until both baby and parent pages report __peerState === 'connected'.
+ *
+ * @param {import('@playwright/test').Page} babyPage
+ * @param {import('@playwright/test').Page} parentPage
+ * @param {number} [timeoutMs=20000]
+ */
+async function waitForBothConnected(babyPage, parentPage, timeoutMs = 20_000) {
+  await Promise.all([
+    babyPage.waitForFunction(
+      () => window.__peerState === 'connected',
+      { timeout: timeoutMs },
+    ),
+    parentPage.waitForFunction(
+      () => window.__peerState === 'connected',
+      { timeout: timeoutMs },
+    ),
+  ]);
+}
+
 module.exports = {
   FAKE_MEDIA_ARGS,
   ISOLATED_CONTEXT_OPTIONS,
@@ -164,4 +244,9 @@ module.exports = {
   waitForPeerConnected,
   getLocalStorage,
   setLocalStorage,
+  skipNotifications,
+  tapToBegin,
+  setupBabyPeerJs,
+  setupParentPeerJs,
+  waitForBothConnected,
 };

@@ -745,6 +745,9 @@ function addMonitor(conn) {
   // E2E test hooks (TASK-063): expose connection state and last connection for assertions.
   window.__peerState = 'connected';
   window.__testMonitorConn = conn;
+  // E2E test hook (TASK-064): expose the full monitor entry so tests can inspect
+  // the gainNode value (e.g. during speak-through ducking) and the analyserNode.
+  window.__testMonitorEntry = entry;
 }
 
 /**
@@ -1998,3 +2001,19 @@ if (_compatResult !== 'blocked') {
     });
   }, { once: true });
 }
+
+// ---------------------------------------------------------------------------
+// E2E test hooks — speak-through (TASK-064)
+// ---------------------------------------------------------------------------
+// Expose a helper that opens the control panel for a given device ID and then
+// starts speak-through so Playwright tests can trigger the full speak-through
+// flow without needing to interact with the DOM directly.
+// Only wired up once the module has loaded; safe to call any time after that.
+window.__testActivateSpeakThrough = async (deviceId) => {
+  openControlPanel(deviceId);
+  await startSpeakThrough();
+};
+
+window.__testStopSpeakThrough = () => {
+  stopSpeakThrough();
+};
