@@ -60,11 +60,13 @@ const MAX_MONITORS = 4;
  * @property {string}        deviceId
  * @property {string}        label
  * @property {object}        conn          — normalised connection
- * @property {MediaStream}   mediaStream
+ * @property {MediaStream|null}   mediaStream
  * @property {HTMLElement}   panelEl
  * @property {AudioContext}  audioCtx
- * @property {GainNode}      gainNode
- * @property {AnalyserNode}  analyserNode
+ * @property {MediaStreamAudioSourceNode|null} sourceNode — TASK-011: stored for cleanup
+ * @property {GainNode}      gainNode      — TASK-011 / TASK-056 hookup: volume + smooth ramp
+ * @property {AnalyserNode}  analyserNode  — TASK-024 hookup: noise visualiser
+ * @property {number}        desiredGain   — TASK-011: last user-set gain (0–1); preserved across mute
  * @property {number}        noiseThreshold
  * @property {boolean}       audioMuted
  */
@@ -120,6 +122,7 @@ const btnSafeSleep        = document.getElementById('btn-safe-sleep');
 // Control panel buttons / inputs
 const cpSpeakBtn          = document.getElementById('cp-speak-btn');
 const cpVolume            = document.getElementById('cp-volume');
+const cpMonitorVolume     = document.getElementById('cp-monitor-volume'); // TASK-011
 const cpTrackSelect       = document.getElementById('cp-track-select');
 const cpTimerBtns         = controlPanel?.querySelectorAll('.timer-btn') ?? [];
 const cpTimerCountdown    = document.getElementById('cp-timer-countdown');
@@ -489,17 +492,46 @@ function addMonitor(conn) {
   };
   saveDeviceProfile(profile);
 
+  // -------------------------------------------------------------------------
   // Set up Web Audio graph (TASK-011)
-  const audioCtx   = new AudioContext();
-  const gainNode   = audioCtx.createGain();
-  const analyser   = audioCtx.createAnalyser();
+  // Architecture:  MediaStreamSourceNode (audio track only)
+  //                   → GainNode    (TASK-011 volume / TASK-056 smooth-ramp hookup)
+  //                   → AnalyserNode (TASK-024 noise-visualiser hookup)
+  //                   → AudioContext.destination
+  //
+  // The video element (created in createMonitorPanel) has the `muted` attribute
+  // set so it never plays audio — all audio flows through this graph.
+  // -------------------------------------------------------------------------
+  const audioCtx = new AudioContext();
+
+  // Resume immediately — the user has already interacted with the page via the
+  // tap-to-begin overlay, so this should succeed on all major browsers.
+  audioCtx.resume().catch(err => console.warn('[parent] AudioContext resume failed:', err));
+
+  // Default gain: 80% — matches the monitor volume slider default (value="80").
+  const initialGain = Number(cpMonitorVolume?.value ?? 80) / 100;
+  const gainNode = audioCtx.createGain();
+  gainNode.gain.value = initialGain;
+
+  // AnalyserNode — TASK-024 hookup point (noise visualiser reads from this).
+  const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 256;
+
+  // Wire: gain → analyser → speakers
   gainNode.connect(analyser);
   analyser.connect(audioCtx.destination);
 
+  // Create the MediaStreamSourceNode from the audio track(s) only.
+  // The full stream (including video) is attached to the <video> element
+  // separately; here we only want audio in the Web Audio graph.
+  let sourceNode = null;
   if (conn.mediaStream) {
-    const source = audioCtx.createMediaStreamSource(conn.mediaStream);
-    source.connect(gainNode);
+    const audioTracks = conn.mediaStream.getAudioTracks();
+    if (audioTracks.length > 0) {
+      const audioOnlyStream = new MediaStream(audioTracks);
+      sourceNode = audioCtx.createMediaStreamSource(audioOnlyStream);
+      sourceNode.connect(gainNode);
+    }
   }
 
   // Create the panel DOM element
@@ -514,8 +546,10 @@ function addMonitor(conn) {
     mediaStream:    conn.mediaStream,
     panelEl,
     audioCtx,
+    sourceNode,           // stored for disconnection on cleanup (TASK-011)
     gainNode,
     analyserNode:   analyser,
+    desiredGain:    initialGain, // preserved across mute/unmute (TASK-050)
     noiseThreshold: profile.noiseThreshold,
     audioMuted:     false,
   };
@@ -542,8 +576,9 @@ function removeMonitor(deviceId) {
   // Stop media tracks
   entry.mediaStream?.getTracks().forEach(t => t.stop());
 
-  // Disconnect Web Audio nodes
+  // Disconnect Web Audio nodes (TASK-011: disconnect in source→gain→analyser order)
   try {
+    entry.sourceNode?.disconnect();   // disconnect source first to stop feeding the graph
     entry.gainNode?.disconnect();
     entry.analyserNode?.disconnect();
     entry.audioCtx?.close();
@@ -707,6 +742,14 @@ function openControlPanel(deviceId) {
   // Populate noise threshold from profile
   if (cpNoiseThreshold) cpNoiseThreshold.value = String(entry.noiseThreshold);
 
+  // Sync monitor volume slider to this entry's current desired gain (TASK-011).
+  // Opening the control panel is always in response to a user gesture, so
+  // this is also the right place to resume a suspended AudioContext.
+  if (cpMonitorVolume) {
+    cpMonitorVolume.value = String(Math.round(entry.desiredGain * 100));
+  }
+  entry.audioCtx?.resume().catch(() => {});
+
   controlPanel?.classList.remove('hidden');
 }
 
@@ -737,10 +780,29 @@ controlPanel?.querySelectorAll('.mode-btn').forEach(btn => {
   });
 });
 
-// Volume slider
+// Baby device music volume slider — sends SET_VOLUME message to baby (controls soothing music).
 cpVolume?.addEventListener('input', () => {
   const conn = getActiveConn();
   if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_VOLUME, Number(cpVolume.value));
+});
+
+// Monitor volume slider (TASK-011) — adjusts the local GainNode for this baby's audio output.
+// Uses a short linear ramp for smooth gain changes (ramp pattern reused by TASK-056).
+cpMonitorVolume?.addEventListener('input', () => {
+  if (!controlPanelDeviceId) return;
+  const entry = monitors.get(controlPanelDeviceId);
+  if (!entry) return;
+
+  const targetGain = Number(cpMonitorVolume.value) / 100;
+  // Smooth 50 ms ramp — prevents clicks/pops on rapid slider movement.
+  const rampEnd = entry.audioCtx.currentTime + 0.05;
+  entry.gainNode.gain.cancelScheduledValues(entry.audioCtx.currentTime);
+  entry.gainNode.gain.setValueAtTime(entry.gainNode.gain.value, entry.audioCtx.currentTime);
+  entry.gainNode.gain.linearRampToValueAtTime(targetGain, rampEnd);
+
+  // Persist as the desired gain so it can be restored after a mute (TASK-050).
+  entry.desiredGain = targetGain;
+  entry.audioMuted  = (targetGain === 0);
 });
 
 // Track selector
@@ -998,6 +1060,54 @@ document.getElementById('method-offline')?.addEventListener('click', () => {
 document.getElementById('btn-start-pairing')?.addEventListener('click', () => {
   showPairing();
 });
+
+// ---------------------------------------------------------------------------
+// Audio control helpers — TASK-011 hookup points for TASK-050 and TASK-056
+// ---------------------------------------------------------------------------
+
+/**
+ * Set a monitor's audio gain with a smooth linear ramp.
+ * Called directly by this module when volume changes; also the pattern used by
+ * TASK-056 (speak-through ducking) to smoothly reduce gain while parent speaks.
+ *
+ * @param {string} deviceId
+ * @param {number} gain       Target gain value (0 = silent, 1 = unity, >1 = amplified)
+ * @param {number} [rampMs=50] Ramp duration in milliseconds
+ */
+function setMonitorGain(deviceId, gain, rampMs = 50) {
+  const entry = monitors.get(deviceId);
+  if (!entry) return;
+  const ctx = entry.audioCtx;
+  const targetGain = Math.max(0, gain);
+  const rampEnd = ctx.currentTime + (rampMs / 1000);
+  entry.gainNode.gain.cancelScheduledValues(ctx.currentTime);
+  entry.gainNode.gain.setValueAtTime(entry.gainNode.gain.value, ctx.currentTime);
+  entry.gainNode.gain.linearRampToValueAtTime(targetGain, rampEnd);
+}
+
+/**
+ * Mute or unmute a monitor's audio output (TASK-050 hookup).
+ * Muting ramps gain to 0 in 10 ms; unmuting restores `entry.desiredGain` in 100 ms.
+ * `entry.desiredGain` is unaffected so the previous level is always recoverable.
+ *
+ * @param {string}  deviceId
+ * @param {boolean} muted
+ */
+function setMonitorMuted(deviceId, muted) {
+  const entry = monitors.get(deviceId);
+  if (!entry) return;
+  if (muted) {
+    setMonitorGain(deviceId, 0, 10);
+    entry.audioMuted = true;
+  } else {
+    setMonitorGain(deviceId, entry.desiredGain, 100);
+    entry.audioMuted = false;
+    // Sync slider if this monitor's control panel is open
+    if (controlPanelDeviceId === deviceId && cpMonitorVolume) {
+      cpMonitorVolume.value = String(Math.round(entry.desiredGain * 100));
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Utilities

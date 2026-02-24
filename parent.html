@@ -214,6 +214,16 @@
         </div>
       </section>
 
+      <!-- Monitor volume (TASK-011): adjusts the local GainNode on the parent device.
+           This is distinct from "Music Volume" (cp-volume) which controls the baby
+           device's soothing music level via a data channel message. -->
+      <section class="control-group" aria-labelledby="cp-monitor-vol-label">
+        <h3 id="cp-monitor-vol-label">Monitor Volume</h3>
+        <input type="range" id="cp-monitor-volume" class="volume-slider"
+               min="0" max="100" value="80"
+               aria-label="Monitor audio volume (how loud the baby sounds on this device)" />
+      </section>
+
       <!-- Fade-out timer (TASK-014) -->
       <section class="control-group" aria-labelledby="cp-timer-label">
         <h3 id="cp-timer-label">Fade-out Timer</h3>

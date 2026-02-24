@@ -88,7 +88,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: On the baby monitor device, request camera and microphone access via `getUserMedia`. Add the resulting media stream tracks to the `RTCPeerConnection` for transmission to the parent. Implement resolution and frame-rate controls (e.g. 640×480 at 15 fps as a default to conserve battery). Provide a UI toggle to switch to audio-only mode (disables video track) to further save battery. Handle permission denial gracefully with a clear error message. Do not hard-code a camera facing direction — camera selection is handled separately in TASK-041.
 
 ### TASK-011: Implement media stream display on the parent monitor
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-010
 - **Description**: On the parent monitor, receive the incoming media stream from the baby device and attach the video track to a `<video>` element (muted, for display only). Route the audio track separately through a Web Audio API graph: create a `MediaStreamSourceNode` from the incoming stream's audio track, connect it through a `GainNode` (for volume control and smooth ramping), and on to `AudioContext.destination`. This audio graph architecture is required by TASK-024 (AnalyserNode attachment), TASK-056 (smooth ramp when parent speaks), and TASK-050 (muting during alerts). Expose the `GainNode` and `AnalyserNode` hookup points for use by those tasks. Implement a volume slider that adjusts the `GainNode` gain value. Ensure both the video element and audio graph are fully cleaned up when the connection closes (stop tracks, disconnect nodes, close or suspend the AudioContext).
