@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd:C:\\Users\\jeastaugh\\source\\repos\\Experiments\\0.next-idea)",
+      "Bash(cd:C:\\Users\\jeastaugh\\source\\repos\\Experiments\\0.next-idea/**)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
+      "Bash(git:*)",
+      "Bash(tsc:*)",
+      "Bash(mkdir:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(echo:*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf ..)",
+      "Bash(sudo:*)",
+      "Bash(chmod:*)",
+      "Bash(chown:*)"
+    ]
+  },
+  "restrictToWorkspace": true,
+  "workspacePath": "C:\\Users\\jeastaugh\\source\\repos\\Experiments\\0.next-idea"
+}

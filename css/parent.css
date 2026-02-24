@@ -1,0 +1,664 @@
+/* ==========================================================================
+   Baby Monitor — Parent Device Styles
+   This stylesheet is only loaded on parent.html.
+   Responsive dashboard layout; works on phones and tablets (TASK-033).
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Home screen (index.html — used as mode selection)
+   -------------------------------------------------------------------------- */
+.home-screen {
+  background: var(--color-bg);
+}
+
+.home {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100dvh;
+  padding: 0 var(--space-md) max(var(--space-lg), env(safe-area-inset-bottom));
+}
+
+.home__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(var(--space-md), env(safe-area-inset-top)) 0 var(--space-md);
+}
+
+.home__title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.home__footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.home__footer-sep {
+  color: var(--color-border);
+}
+
+/* --------------------------------------------------------------------------
+   Mode selection cards (index.html)
+   -------------------------------------------------------------------------- */
+.mode-select {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-lg) 0;
+}
+
+.mode-select__heading {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
+  color: var(--color-text);
+}
+
+.mode-select__intro {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.mode-select__cards {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  text-align: left;
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--color-border);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+              transform var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+  width: 100%;
+}
+
+.mode-card:hover,
+.mode-card:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.mode-card:active {
+  transform: scale(0.99);
+}
+
+.mode-card--secondary {
+  border-style: dashed;
+  background: var(--color-bg);
+}
+
+.mode-card__icon {
+  font-size: 2rem;
+  display: block;
+}
+
+.mode-card__label {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.mode-card__desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   Parent dashboard layout (parent.html)
+   -------------------------------------------------------------------------- */
+.parent-screen {
+  background: var(--color-bg);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100dvh;
+}
+
+.parent-dashboard {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  min-height: 100dvh;
+}
+
+/* --------------------------------------------------------------------------
+   Dashboard header
+   -------------------------------------------------------------------------- */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: max(var(--space-sm), env(safe-area-inset-top)) var(--space-md) var(--space-sm);
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-dropdown);
+  box-shadow: var(--shadow-sm);
+}
+
+.dashboard-header__title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Alert banners (TASK-036, TASK-027)
+   -------------------------------------------------------------------------- */
+.alert-banners {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.alert-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  animation: fade-in var(--transition-base) both;
+}
+
+.alert-banner--battery {
+  background: #fef2f2;
+  color: #991b1b;
+  border-left: 4px solid #dc2626;
+}
+
+.alert-banner--noise {
+  background: #fffbeb;
+  color: #92400e;
+  border-left: 4px solid #f59e0b;
+}
+
+.alert-banner--movement {
+  background: #eff6ff;
+  color: #1e40af;
+  border-left: 4px solid #3b82f6;
+}
+
+.dark-mode .alert-banner--battery  { background: #450a0a; color: #fca5a5; }
+.dark-mode .alert-banner--noise    { background: #431407; color: #fcd34d; }
+.dark-mode .alert-banner--movement { background: #172554; color: #93c5fd; }
+
+.alert-banner__dismiss {
+  margin-left: auto;
+  font-size: 0.75rem;
+  opacity: 0.7;
+  min-height: var(--touch-target);
+  min-width: var(--touch-target);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --------------------------------------------------------------------------
+   Monitor grid (TASK-021, TASK-022)
+   Responsive grid — grows from 1 to up to 4 panels.
+   -------------------------------------------------------------------------- */
+.monitor-grid {
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-md);
+  grid-template-columns: 1fr;
+  align-content: start;
+  overflow-y: auto;
+}
+
+/* 2 monitors: 2 columns on wider screens */
+.monitor-grid[data-count="2"] {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* 3 or 4 monitors: 2 columns */
+.monitor-grid[data-count="3"],
+.monitor-grid[data-count="4"] {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* Single monitor: give it more room */
+.monitor-grid[data-count="1"] .monitor-panel {
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+.monitor-grid__empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  min-height: 60dvh;
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-lg);
+}
+
+/* --------------------------------------------------------------------------
+   Individual baby monitor panel (TASK-021)
+   -------------------------------------------------------------------------- */
+.monitor-panel {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  border: 2px solid var(--color-border);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  cursor: pointer;
+  position: relative;
+}
+
+.monitor-panel:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Alert state: pulsing border when noise/movement threshold exceeded (TASK-024) */
+.monitor-panel--alert {
+  border-color: var(--color-warning);
+  animation: panel-alert-pulse 1.5s ease-in-out infinite;
+}
+
+.monitor-panel--battery-alert {
+  border-color: var(--color-danger);
+  animation: panel-alert-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes panel-alert-pulse {
+  0%, 100% { box-shadow: var(--shadow-sm); }
+  50% { box-shadow: 0 0 0 4px rgba(220, 53, 69, 0.3), var(--shadow-md); }
+}
+
+/* Panel header bar */
+.monitor-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(0, 0, 0, 0.03);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.monitor-panel__label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.monitor-panel__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* Panel video area */
+.monitor-panel__video-wrap {
+  position: relative;
+  background: #000;
+  aspect-ratio: 4/3;
+  overflow: hidden;
+}
+
+.monitor-panel__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Connection state overlay on the video */
+.monitor-panel__conn-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  gap: var(--space-sm);
+  text-align: center;
+  padding: var(--space-md);
+}
+
+.monitor-panel__conn-overlay.hidden {
+  display: none;
+}
+
+/* Panel footer: noise level + quick controls */
+.monitor-panel__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Noise level bar (TASK-024) */
+.noise-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: var(--color-bg);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.noise-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--color-success);
+  border-radius: var(--radius-pill);
+  transition: width 100ms linear, background 200ms ease;
+}
+
+.noise-bar.above-threshold {
+  background: var(--color-warning);
+}
+
+.noise-bar.high {
+  background: var(--color-danger);
+}
+
+/* Panel controls button */
+.monitor-panel__controls-btn {
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-size: 1.1rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.monitor-panel__controls-btn:hover,
+.monitor-panel__controls-btn:focus-visible {
+  color: var(--color-text);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* --------------------------------------------------------------------------
+   Control panel (TASK-025) — slide-out drawer from the right
+   -------------------------------------------------------------------------- */
+.control-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100dvh;
+  width: min(400px, 100vw);
+  z-index: var(--z-modal);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  animation: slide-in-right var(--transition-base) both;
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.control-panel__inner {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0 0 max(var(--space-lg), env(safe-area-inset-bottom));
+}
+
+.control-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(var(--space-md), env(safe-area-inset-top)) var(--space-md) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.control-panel__title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+/* Control groups within the panel */
+.control-group {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.control-group:last-child {
+  border-bottom: none;
+}
+
+.control-group h3 {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-md);
+}
+
+/* --------------------------------------------------------------------------
+   Timer controls
+   -------------------------------------------------------------------------- */
+.timer-btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.timer-btn {
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 2px solid var(--color-border);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.timer-btn[aria-pressed="true"],
+.timer-btn.active {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  border-color: var(--color-primary);
+}
+
+.timer-countdown {
+  margin-top: var(--space-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  min-height: 1.4em;
+}
+
+/* --------------------------------------------------------------------------
+   Speak-through button (TASK-012)
+   -------------------------------------------------------------------------- */
+.speak-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-inverse);
+  background: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+  transition: background var(--transition-fast), transform var(--transition-fast);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+
+.speak-btn[aria-pressed="true"],
+.speak-btn.active {
+  background: var(--color-danger);
+  transform: scale(0.98);
+}
+
+.speak-hint {
+  margin-top: var(--space-sm);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   File upload / transfer (TASK-013)
+   -------------------------------------------------------------------------- */
+.file-transfer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.file-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-target);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  background: var(--color-bg);
+  border: 2px solid var(--color-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.file-upload-btn:hover {
+  background: rgba(74, 111, 165, 0.08);
+}
+
+.transfer-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.transfer-progress progress {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  accent-color: var(--color-primary);
+}
+
+.track-select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
+.track-select label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.track-select select {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  min-height: var(--touch-target);
+  font-size: var(--font-size-sm);
+}
+
+/* --------------------------------------------------------------------------
+   Noise threshold slider label
+   -------------------------------------------------------------------------- */
+.control-group input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-primary);
+  height: var(--touch-target);
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   Responsive overrides — tablet and wider
+   -------------------------------------------------------------------------- */
+@media (min-width: 768px) {
+  .mode-select__cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .monitor-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .monitor-grid[data-count="1"] {
+    grid-template-columns: 1fr;
+  }
+
+  .control-panel {
+    width: 400px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .monitor-grid[data-count="3"],
+  .monitor-grid[data-count="4"] {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

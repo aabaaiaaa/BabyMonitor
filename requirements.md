@@ -14,7 +14,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 ## Tasks
 
 ### TASK-001: Create project file structure and GitHub Pages configuration
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: none
 - **Description**: Scaffold the project as a static web app. Create `index.html` as the entry point with a mode-selection screen (baby monitor / parent monitor). Create separate HTML pages or JS-driven views for each mode. Add a `_config.yml` or equivalent for GitHub Pages. Organise JS into modules (e.g. `qr.js`, `webrtc.js`, `baby.js`, `parent.js`, `storage.js`). No build tools required — plain HTML/CSS/JS only.

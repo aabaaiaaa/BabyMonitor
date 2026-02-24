@@ -1,0 +1,236 @@
+/* ==========================================================================
+   Baby Monitor — Baby Device Styles
+   This stylesheet is only loaded on baby.html.
+   Designed for a dark, unobtrusive full-screen experience.
+   ========================================================================== */
+
+/* Baby body: always dark to avoid disturbing the baby (TASK-015) */
+body.baby-screen {
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------------------------
+   Soothing canvas (TASK-016, TASK-017, TASK-018)
+   Fills the entire screen.
+   -------------------------------------------------------------------------- */
+.soothing-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: var(--z-base);
+  touch-action: none; /* Prevent scroll/zoom interfering with fullscreen */
+}
+
+/* --------------------------------------------------------------------------
+   Baby monitor main layout
+   -------------------------------------------------------------------------- */
+.baby-monitor {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  /* Transparent — soothing canvas shows through */
+  background: transparent;
+}
+
+/* --------------------------------------------------------------------------
+   Status indicator (TASK-015)
+   Top-right corner; fades out after a few seconds via JS.
+   -------------------------------------------------------------------------- */
+.baby-status {
+  position: fixed;
+  top: max(var(--space-md), env(safe-area-inset-top));
+  right: max(var(--space-md), env(safe-area-inset-right));
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: opacity var(--transition-slow);
+}
+
+.baby-status.faded {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.status-battery {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Touch lock hint (TASK-039)
+   Brief message shown on single tap while locked.
+   -------------------------------------------------------------------------- */
+.touch-lock-hint {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: var(--z-overlay);
+  padding: var(--space-sm) var(--space-lg);
+  background: rgba(0, 0, 0, 0.65);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  pointer-events: none;
+  animation: hint-fade 2s ease forwards;
+}
+
+@keyframes hint-fade {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+  15%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  75%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* --------------------------------------------------------------------------
+   Baby settings overlay (TASK-039 — unlocked by triple-tap)
+   -------------------------------------------------------------------------- */
+.baby-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: flex-end; /* Bottom sheet on mobile */
+  justify-content: center;
+  padding: 0;
+  animation: slide-up var(--transition-base) both;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.baby-settings-overlay__inner {
+  width: 100%;
+  max-width: 480px;
+  max-height: 85dvh;
+  overflow-y: auto;
+  background: #1a1a2e;
+  color: #e8e8f0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-lg) var(--space-lg) max(var(--space-lg), env(safe-area-inset-bottom));
+  position: relative;
+}
+
+.baby-settings-overlay__inner h2 {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  margin-bottom: var(--space-lg);
+  text-align: center;
+}
+
+.overlay-close {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  color: #e8e8f0;
+  font-size: 1rem;
+}
+
+/* Settings sections inside baby overlay */
+.settings-group {
+  margin-bottom: var(--space-xl);
+}
+
+.settings-group h3 {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(232, 232, 240, 0.6);
+  margin-bottom: var(--space-md);
+}
+
+.settings-group .mode-btn-group {
+  gap: var(--space-sm);
+}
+
+.settings-group .mode-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8e8f0;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.settings-group .mode-btn[aria-pressed="true"],
+.settings-group .mode-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.settings-group select {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #e8e8f0;
+  min-height: var(--touch-target);
+}
+
+.settings-group .toggle-row {
+  color: #e8e8f0;
+}
+
+/* --------------------------------------------------------------------------
+   Baby monitor pairing section: dark theme to match baby device aesthetic
+   -------------------------------------------------------------------------- */
+body.baby-screen .pairing-section {
+  background: #0d0d1a;
+  color: #e8e8f0;
+}
+
+body.baby-screen .pairing-section__title {
+  color: #e8e8f0;
+}
+
+body.baby-screen .pairing-method-btn {
+  background: #1a1a2e;
+  color: #e8e8f0;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+body.baby-screen .pairing-method-btn small {
+  color: rgba(232, 232, 240, 0.6);
+}
+
+body.baby-screen .pairing-status {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(232, 232, 240, 0.6);
+}
+
+body.baby-screen .pairing-step__desc {
+  color: #e8e8f0;
+}
+
+/* --------------------------------------------------------------------------
+   Responsive overrides for baby view
+   -------------------------------------------------------------------------- */
+@media (min-width: 768px) {
+  .baby-settings-overlay {
+    align-items: center;
+  }
+
+  .baby-settings-overlay__inner {
+    border-radius: var(--radius-lg);
+    max-width: 480px;
+    margin: var(--space-lg);
+  }
+}

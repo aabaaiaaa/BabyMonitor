@@ -1,0 +1,24 @@
+# GitHub Pages configuration
+# https://docs.github.com/en/pages
+
+# No Jekyll processing required — this is a plain static site.
+# Setting this to null disables Jekyll completely so that all files
+# (including those with underscores in their names) are served as-is.
+theme: null
+
+# Prevent GitHub Pages from processing the JS modules as Jekyll includes.
+# All files listed here are passed through unchanged.
+include:
+  - "js/"
+  - "css/"
+  - "audio/"
+
+# Files and directories to exclude from the published site.
+exclude:
+  - "*.md"
+  - ".devloop/"
+  - ".claude/"
+  - "node_modules/"
+  - "CLAUDE.md"
+  - "requirements.md"
+  - "progress.md"

@@ -1,0 +1,608 @@
+/**
+ * webrtc.js — WebRTC / PeerJS connection management (TASK-007, TASK-060, TASK-061)
+ *
+ * Exposes a unified connection interface regardless of which connection
+ * method is used (PeerJS or raw offline WebRTC via QR exchange).
+ *
+ * After a connection is established by either method, both call the shared
+ * `onConnectionReady(dataChannel, mediaStream)` callback so that all
+ * subsequent tasks (media display, data-channel messages, etc.) work
+ * identically.
+ *
+ * This module is a stub that establishes the architectural boundaries.
+ * The full implementation is completed in subsequent tasks:
+ *   TASK-007  — peer connection management for both methods
+ *   TASK-008  — TURN server configuration
+ *   TASK-030  — auto-reconnect
+ *   TASK-060  — PeerJS integration
+ *   TASK-061  — backup ID pool
+ */
+
+import { lsGet, lsSet, SETTING_KEYS } from './storage.js';
+
+// ---------------------------------------------------------------------------
+// ICE server configuration (TASK-008)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the iceServers array from saved settings.
+ * Includes the Google STUN server plus any configured TURN server.
+ *
+ * @returns {RTCIceServer[]}
+ */
+export function getIceServers() {
+  const base = [{ urls: 'stun:stun.l.google.com:19302' }];
+  const turn = lsGet(SETTING_KEYS.TURN_CONFIG, null);
+  if (turn?.urls) {
+    base.push({
+      urls:       turn.urls,
+      username:   turn.username ?? undefined,
+      credential: turn.credential ?? undefined,
+    });
+  }
+  return base;
+}
+
+// ---------------------------------------------------------------------------
+// Connection state types
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {'disconnected'|'connecting'|'connected'|'reconnecting'|'failed'} ConnState
+ */
+
+/**
+ * @typedef {object} Connection
+ * @property {string}        deviceId    — remote device's unique ID
+ * @property {RTCDataChannel|object} dataChannel — normalised data channel
+ * @property {MediaStream|null}      mediaStream  — incoming media stream
+ * @property {ConnState}             state
+ * @property {string}                method       — 'peerjs' | 'offline'
+ * @property {RTCPeerConnection|null} peerConnection — underlying RTC connection
+ */
+
+// ---------------------------------------------------------------------------
+// PeerJS connection path (TASK-060)
+// ---------------------------------------------------------------------------
+
+/** @type {object|null} Active PeerJS Peer instance */
+let _peer = null;
+
+/**
+ * Initialise the PeerJS Peer object.
+ *
+ * @param {object} [serverConfig]  — optional custom PeerJS server settings
+ * @returns {Promise<string>} the local peer ID once registered
+ */
+export async function initPeer(serverConfig = null) {
+  if (typeof Peer === 'undefined') {
+    throw new Error('PeerJS library not loaded');
+  }
+
+  // Destroy any existing Peer
+  if (_peer && !_peer.destroyed) {
+    _peer.destroy();
+    _peer = null;
+  }
+
+  const options = {};
+
+  if (serverConfig) {
+    // Custom self-hosted PeerJS server (TASK-008)
+    options.host    = serverConfig.host;
+    options.port    = serverConfig.port ?? 9000;
+    options.path    = serverConfig.path ?? '/';
+    options.secure  = serverConfig.secure ?? true;
+  }
+
+  const savedConfig = lsGet(SETTING_KEYS.PEERJS_SERVER, null);
+  if (!serverConfig && savedConfig) {
+    options.host   = savedConfig.host;
+    options.port   = savedConfig.port ?? 9000;
+    options.path   = savedConfig.path ?? '/';
+    options.secure = savedConfig.secure ?? true;
+  }
+
+  // Inject TURN config into PeerJS iceServers
+  options.config = { iceServers: getIceServers() };
+
+  return new Promise((resolve, reject) => {
+    _peer = new Peer(options);
+
+    _peer.on('open', (id) => {
+      console.log('[webrtc] PeerJS peer ID:', id);
+      resolve(id);
+    });
+
+    _peer.on('error', (err) => {
+      console.error('[webrtc] PeerJS error:', err);
+      reject(err);
+    });
+  });
+}
+
+/**
+ * Destroy the PeerJS Peer object.
+ */
+export function destroyPeer() {
+  if (_peer && !_peer.destroyed) {
+    _peer.destroy();
+    _peer = null;
+  }
+}
+
+/**
+ * Get the active PeerJS Peer instance (may be null).
+ * @returns {object|null}
+ */
+export function getPeer() {
+  return _peer;
+}
+
+// ---------------------------------------------------------------------------
+// Baby device — PeerJS call out (TASK-007)
+// ---------------------------------------------------------------------------
+
+/**
+ * Baby device: call a parent peer via PeerJS.
+ * Sends a media stream and opens a data channel.
+ *
+ * @param {string}      parentPeerId    — peer ID of the parent device
+ * @param {MediaStream} localStream     — baby's camera/mic stream
+ * @param {object}      callbacks
+ * @param {(conn: Connection) => void} callbacks.onReady   — connection ready
+ * @param {(state: ConnState) => void} callbacks.onState   — state changes
+ * @param {(msg: object) => void}      callbacks.onMessage — data channel message
+ * @returns {Promise<void>}
+ */
+export async function babyCallParent(parentPeerId, localStream, callbacks) {
+  if (!_peer) throw new Error('PeerJS peer not initialised');
+
+  const { onReady, onState, onMessage } = callbacks;
+
+  onState?.('connecting');
+
+  // Open media call
+  const call = _peer.call(parentPeerId, localStream);
+
+  // Open data channel alongside the media call
+  const dataConn = _peer.connect(parentPeerId, { reliable: true });
+
+  dataConn.on('open', () => {
+    const conn = /** @type {Connection} */ ({
+      deviceId:       parentPeerId,
+      dataChannel:    normalisePeerJsDataConn(dataConn),
+      mediaStream:    null,  // baby does not receive a stream from parent here
+      state:          'connected',
+      method:         'peerjs',
+      peerConnection: call.peerConnection ?? null,
+    });
+    onState?.('connected');
+    onReady?.(conn);
+  });
+
+  dataConn.on('data', (data) => {
+    try {
+      const msg = typeof data === 'string' ? JSON.parse(data) : data;
+      onMessage?.(msg);
+    } catch (e) {
+      console.warn('[webrtc] Could not parse data channel message', e);
+    }
+  });
+
+  dataConn.on('close', () => onState?.('disconnected'));
+  dataConn.on('error', (err) => {
+    console.error('[webrtc] Data channel error:', err);
+    onState?.('failed');
+  });
+
+  call.on('error', (err) => {
+    console.error('[webrtc] Call error:', err);
+    onState?.('failed');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Parent device — PeerJS receive (TASK-007)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parent device: listen for incoming PeerJS calls and data connections.
+ *
+ * @param {object}   callbacks
+ * @param {(conn: Connection) => void} callbacks.onReady
+ * @param {(state: ConnState) => void} callbacks.onState
+ * @param {(msg: object) => void}      callbacks.onMessage
+ */
+export function parentListenPeerJs(callbacks) {
+  if (!_peer) throw new Error('PeerJS peer not initialised');
+
+  const { onReady, onState, onMessage } = callbacks;
+
+  /** @type {MediaStream|null} */
+  let remoteStream = null;
+  /** @type {object|null} */
+  let dataConn     = null;
+
+  function tryNotifyReady() {
+    if (!remoteStream || !dataConn?.open) return;
+    const conn = /** @type {Connection} */ ({
+      deviceId:       dataConn.peer,
+      dataChannel:    normalisePeerJsDataConn(dataConn),
+      mediaStream:    remoteStream,
+      state:          'connected',
+      method:         'peerjs',
+      peerConnection: null, // set below once call.peerConnection is known
+    });
+    onState?.('connected');
+    onReady?.(conn);
+  }
+
+  _peer.on('call', (call) => {
+    // Accept the media call
+    call.answer();
+
+    call.on('stream', (stream) => {
+      remoteStream = stream;
+      // Attach peerConnection reference if available
+      tryNotifyReady();
+    });
+
+    call.on('close', () => onState?.('disconnected'));
+    call.on('error', (err) => {
+      console.error('[webrtc] Incoming call error:', err);
+      onState?.('failed');
+    });
+  });
+
+  _peer.on('connection', (conn) => {
+    dataConn = conn;
+    onState?.('connecting');
+
+    conn.on('open', () => tryNotifyReady());
+
+    conn.on('data', (data) => {
+      try {
+        const msg = typeof data === 'string' ? JSON.parse(data) : data;
+        onMessage?.(msg);
+      } catch (e) {
+        console.warn('[webrtc] Could not parse data channel message', e);
+      }
+    });
+
+    conn.on('close', () => onState?.('disconnected'));
+    conn.on('error', (err) => {
+      console.error('[webrtc] Data connection error:', err);
+      onState?.('failed');
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Offline QR path (TASK-007) — raw RTCPeerConnection
+// ---------------------------------------------------------------------------
+
+/** @type {RTCPeerConnection|null} */
+let _rtcConn   = null;
+/** @type {RTCDataChannel|null} */
+let _dataCh    = null;
+
+/**
+ * Create and configure a raw RTCPeerConnection.
+ * @returns {RTCPeerConnection}
+ */
+function createRTCPeerConnection() {
+  if (_rtcConn) {
+    _rtcConn.close();
+    _rtcConn = null;
+  }
+  _rtcConn = new RTCPeerConnection({ iceServers: getIceServers() });
+  return _rtcConn;
+}
+
+/**
+ * Baby device, offline QR path:
+ * 1. Create a peer connection + data channel
+ * 2. Generate an SDP offer
+ * 3. Wait for ICE gathering to complete
+ * 4. Return the offer+candidates JSON for QR encoding
+ *
+ * @param {MediaStream} localStream
+ * @param {object}      callbacks
+ * @param {(conn: Connection) => void} callbacks.onReady
+ * @param {(state: ConnState) => void} callbacks.onState
+ * @param {(msg: object) => void}      callbacks.onMessage
+ * @returns {Promise<string>} JSON string of { sdp, candidates }
+ */
+export async function offlineBabyCreateOffer(localStream, callbacks) {
+  const { onReady, onState, onMessage } = callbacks;
+  const pc = createRTCPeerConnection();
+
+  // Add local tracks
+  for (const track of localStream.getTracks()) {
+    pc.addTrack(track, localStream);
+  }
+
+  // Create data channel
+  _dataCh = pc.createDataChannel('control', { ordered: true });
+  _wireDataChannel(_dataCh, onMessage);
+
+  onState?.('connecting');
+
+  // Create offer
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  // Wait for ICE gathering to complete
+  const candidates = await _waitForIceCandidates(pc);
+
+  return JSON.stringify({ sdp: pc.localDescription, candidates });
+}
+
+/**
+ * Baby device, offline QR path:
+ * Receive the parent's answer and ICE candidates, complete the handshake.
+ *
+ * @param {string} answerJson — JSON string of { sdp, candidates }
+ * @param {object} callbacks
+ * @param {(conn: Connection) => void} callbacks.onReady
+ * @param {(state: ConnState) => void} callbacks.onState
+ */
+export async function offlineBabyReceiveAnswer(answerJson, callbacks) {
+  const { onReady, onState } = callbacks;
+  if (!_rtcConn) throw new Error('RTCPeerConnection not initialised');
+
+  const { sdp, candidates } = JSON.parse(answerJson);
+  await _rtcConn.setRemoteDescription(new RTCSessionDescription(sdp));
+
+  for (const c of candidates) {
+    await _rtcConn.addIceCandidate(new RTCIceCandidate(c));
+  }
+
+  // Connection should now be establishing; wait for data channel open
+  _rtcConn.addEventListener('iceconnectionstatechange', () => {
+    const s = _rtcConn.iceConnectionState;
+    if (s === 'connected' || s === 'completed') {
+      onState?.('connected');
+      const conn = /** @type {Connection} */ ({
+        deviceId:       'parent',
+        dataChannel:    normaliseRawDataChannel(_dataCh),
+        mediaStream:    null,
+        state:          'connected',
+        method:         'offline',
+        peerConnection: _rtcConn,
+      });
+      onReady?.(conn);
+    } else if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+      onState?.(s === 'closed' ? 'disconnected' : s);
+    }
+  });
+}
+
+/**
+ * Parent device, offline QR path:
+ * Receive the baby's offer, generate an answer.
+ *
+ * @param {string}      offerJson   — JSON string of { sdp, candidates }
+ * @param {object}      callbacks
+ * @param {(conn: Connection) => void} callbacks.onReady
+ * @param {(state: ConnState) => void} callbacks.onState
+ * @param {(msg: object) => void}      callbacks.onMessage
+ * @returns {Promise<string>} JSON string of { sdp, candidates } to show to baby
+ */
+export async function offlineParentReceiveOffer(offerJson, callbacks) {
+  const { onReady, onState, onMessage } = callbacks;
+  const pc = createRTCPeerConnection();
+
+  // Listen for incoming tracks
+  pc.addEventListener('track', (event) => {
+    // Media stream ready — will be surfaced via onReady once data channel opens
+  });
+
+  // Listen for data channel from baby
+  pc.addEventListener('datachannel', (event) => {
+    _dataCh = event.channel;
+    _wireDataChannel(_dataCh, onMessage);
+
+    _dataCh.addEventListener('open', () => {
+      onState?.('connected');
+      const streams = pc.getReceivers()
+        .map(r => r.track)
+        .filter(Boolean);
+      const stream = streams.length > 0 ? new MediaStream(streams) : null;
+      const conn = /** @type {Connection} */ ({
+        deviceId:       'baby',
+        dataChannel:    normaliseRawDataChannel(_dataCh),
+        mediaStream:    stream,
+        state:          'connected',
+        method:         'offline',
+        peerConnection: pc,
+      });
+      onReady?.(conn);
+    });
+  });
+
+  const { sdp, candidates } = JSON.parse(offerJson);
+  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  for (const c of candidates) {
+    await pc.addIceCandidate(new RTCIceCandidate(c));
+  }
+
+  onState?.('connecting');
+
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
+  const myCandidates = await _waitForIceCandidates(pc);
+  return JSON.stringify({ sdp: pc.localDescription, candidates: myCandidates });
+}
+
+/**
+ * Close the raw RTCPeerConnection and data channel.
+ */
+export function closeOfflineConnection() {
+  if (_dataCh) {
+    _dataCh.close();
+    _dataCh = null;
+  }
+  if (_rtcConn) {
+    _rtcConn.close();
+    _rtcConn = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared data channel normalisation (TASK-009)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a normalised channel object wrapping a PeerJS DataConnection,
+ * exposing `send(msg)` and `on(event, handler)` compatible with the raw
+ * RTCDataChannel interface so the rest of the app works identically.
+ *
+ * @param {object} peerJsConn — PeerJS DataConnection
+ * @returns {{ send: Function, on: Function, close: Function }}
+ */
+function normalisePeerJsDataConn(peerJsConn) {
+  return {
+    send(msg) {
+      peerJsConn.send(typeof msg === 'object' ? JSON.stringify(msg) : msg);
+    },
+    on(event, handler) {
+      // Map RTCDataChannel 'message' event to PeerJS 'data' event
+      if (event === 'message') {
+        peerJsConn.on('data', (data) => {
+          handler({ data });
+        });
+      } else {
+        peerJsConn.on(event, handler);
+      }
+    },
+    close() {
+      peerJsConn.close();
+    },
+  };
+}
+
+/**
+ * Returns a normalised channel object wrapping a raw RTCDataChannel.
+ *
+ * @param {RTCDataChannel} channel
+ * @returns {{ send: Function, on: Function, close: Function }}
+ */
+function normaliseRawDataChannel(channel) {
+  return {
+    send(msg) {
+      channel.send(typeof msg === 'object' ? JSON.stringify(msg) : msg);
+    },
+    on(event, handler) {
+      channel.addEventListener(event, handler);
+    },
+    close() {
+      channel.close();
+    },
+  };
+}
+
+/**
+ * Attach standard message/close/error listeners to a data channel,
+ * parsing incoming JSON messages and forwarding to onMessage.
+ *
+ * @param {RTCDataChannel} channel
+ * @param {(msg: object) => void} onMessage
+ */
+function _wireDataChannel(channel, onMessage) {
+  channel.addEventListener('message', (event) => {
+    try {
+      const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      onMessage?.(msg);
+    } catch (e) {
+      console.warn('[webrtc] Could not parse data channel message', e);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// ICE gathering helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Wait for the ICE gathering to complete on a peer connection.
+ * Resolves with an array of collected RTCIceCandidate objects.
+ *
+ * @param {RTCPeerConnection} pc
+ * @returns {Promise<RTCIceCandidateInit[]>}
+ */
+function _waitForIceCandidates(pc) {
+  return new Promise((resolve) => {
+    /** @type {RTCIceCandidateInit[]} */
+    const candidates = [];
+
+    if (pc.iceGatheringState === 'complete') {
+      resolve(candidates);
+      return;
+    }
+
+    pc.addEventListener('icecandidate', (event) => {
+      if (event.candidate) {
+        candidates.push(event.candidate.toJSON());
+      }
+    });
+
+    pc.addEventListener('icegatheringstatechange', () => {
+      if (pc.iceGatheringState === 'complete') {
+        resolve(candidates);
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Data channel message protocol helpers (TASK-009)
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a typed JSON message over a normalised data channel.
+ * @param {{ send: Function }} channel
+ * @param {string} type
+ * @param {*} [payload]
+ */
+export function sendMessage(channel, type, payload) {
+  channel.send({ type, ...(payload !== undefined ? { value: payload } : {}) });
+}
+
+/**
+ * All message types used in the data channel protocol.
+ * Defined here as a single source of truth; referenced by baby.js and parent.js.
+ */
+export const MSG = {
+  // Parent → Baby commands
+  SET_MODE:           'setMode',       // value: soothing mode name
+  SET_VOLUME:         'setVolume',     // value: 0–100
+  SET_TRACK:          'setTrack',      // value: track id / filename
+  SET_FADE_TIMER:     'setFadeTimer',  // value: seconds (0 = off)
+  CANCEL_FADE:        'cancelFade',
+  FLIP_CAMERA:        'flipCamera',
+  SET_AUDIO_ONLY:     'setAudioOnly',  // value: boolean
+  SPEAK_START:        'speakStart',
+  SPEAK_STOP:         'speakStop',
+  DISCONNECT:         'disconnect',
+  SET_QUALITY:        'setQuality',    // value: 'low'|'medium'|'high'
+
+  // Baby → Parent status updates
+  STATE_SNAPSHOT:     'stateSnapshot', // full state object
+  BATTERY_LEVEL:      'batteryLevel',  // value: { level, charging }
+  CONN_STATUS:        'connStatus',    // value: ConnState
+
+  // File transfer chunks (TASK-013)
+  FILE_META:          'fileMeta',      // value: { id, name, size, mimeType }
+  FILE_CHUNK:         'fileChunk',     // value: { id, seq, data: ArrayBuffer }
+  FILE_COMPLETE:      'fileComplete',  // value: { id }
+  FILE_ABORT:         'fileAbort',     // value: { id, reason }
+
+  // PeerJS backup ID pool exchange (TASK-061)
+  ID_POOL:            'idPool',        // value: string[] (backup peer IDs)
+
+  // Alert from baby to parent
+  ALERT_BATTERY_LOW:  'alertBatteryLow',  // value: { level }
+};

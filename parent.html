@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a1a2e" />
+  <meta name="description" content="Baby Monitor — parent device view." />
+  <title>Baby Monitor — Parent Device</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/main.css" />
+  <link rel="stylesheet" href="css/parent.css" />
+</head>
+<body class="parent-screen">
+
+  <!-- Tap-to-begin overlay: required on every load (TASK-037) -->
+  <div id="tap-overlay" class="tap-overlay" role="dialog" aria-modal="true" aria-label="Tap to begin">
+    <div class="tap-overlay__inner">
+      <div class="tap-overlay__icon" aria-hidden="true">📱</div>
+      <h1 class="tap-overlay__title">Baby Monitor</h1>
+      <p class="tap-overlay__subtitle">Tap anywhere to begin</p>
+    </div>
+  </div>
+
+  <!-- Pairing / setup wizard (TASK-006): shown before any baby is connected -->
+  <section id="pairing-section" class="pairing-section hidden" aria-label="Pairing">
+    <div class="pairing-section__inner">
+      <h2 class="pairing-section__title">Connect to Baby Device</h2>
+
+      <!-- Connection method selection -->
+      <div id="pairing-method-step" class="pairing-step" data-step="method">
+        <p class="pairing-step__desc">
+          Choose how to connect to the baby device.
+        </p>
+        <button class="pairing-method-btn" id="method-peerjs" data-method="peerjs">
+          <strong>Quick Pair (recommended)</strong><br />
+          <small>Requires internet on both devices. Scan the QR code shown on the baby device.</small>
+        </button>
+        <button class="pairing-method-btn" id="method-offline" data-method="offline">
+          <strong>Offline QR Pair</strong><br />
+          <small>Works without internet, over local Wi-Fi. Requires scanning several QR grids.</small>
+        </button>
+      </div>
+
+      <!-- PeerJS: scan single QR from baby device -->
+      <div id="pairing-peerjs-step" class="pairing-step hidden" data-step="peerjs-scan">
+        <p class="pairing-step__desc">
+          Point your camera at the QR code shown on the baby device.
+        </p>
+        <div class="scanner-container" id="peerjs-scanner-container" aria-label="Camera scanner">
+          <video id="peerjs-scan-video" class="scanner-video" autoplay playsinline muted
+                 aria-label="Camera preview"></video>
+          <div class="scanner-overlay" aria-hidden="true">
+            <div class="scanner-overlay__frame"></div>
+          </div>
+        </div>
+        <p class="pairing-step__progress" id="peerjs-scan-status">Initialising camera…</p>
+      </div>
+
+      <!-- Offline QR: multi-round SDP grid exchange -->
+      <div id="pairing-offline-step" class="pairing-step hidden" data-step="offline">
+        <p class="pairing-step__desc" id="offline-pairing-instruction">
+          Scan all QR codes shown on the baby device screen.
+        </p>
+        <!-- Scanner for reading baby's SDP offer grid -->
+        <div class="scanner-container" id="offline-scanner-container" aria-label="Camera scanner">
+          <video id="offline-scan-video" class="scanner-video" autoplay playsinline muted
+                 aria-label="Camera preview"></video>
+          <div class="scanner-overlay" aria-hidden="true">
+            <div class="scanner-overlay__frame"></div>
+          </div>
+        </div>
+        <p class="scanner-progress" id="offline-scan-progress">Scanning 0 / ?</p>
+        <!-- QR grid for showing answer back to baby device -->
+        <div id="offline-answer-container" class="qr-grid-container hidden" aria-label="Answer QR grid" role="img">
+        </div>
+        <div class="pairing-status" id="pairing-status-offline">Waiting…</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Add-parent mode: wait to receive baby info from an existing parent (TASK-006 Method 3) -->
+  <section id="add-parent-section" class="pairing-section hidden" aria-label="Add parent device">
+    <div class="pairing-section__inner">
+      <h2 class="pairing-section__title">Connect to Existing Parent</h2>
+      <p class="pairing-step__desc">
+        On the parent device already set up, go to
+        <strong>Settings → Share with another parent device</strong>,
+        then scan the QR code it shows.
+      </p>
+      <div class="scanner-container" id="add-parent-scanner-container" aria-label="Camera scanner">
+        <video id="add-parent-scan-video" class="scanner-video" autoplay playsinline muted
+               aria-label="Camera preview"></video>
+        <div class="scanner-overlay" aria-hidden="true">
+          <div class="scanner-overlay__frame"></div>
+        </div>
+      </div>
+      <p class="pairing-step__progress" id="add-parent-scan-status">Initialising camera…</p>
+    </div>
+  </section>
+
+  <!-- Parent dashboard: shown once at least one baby is connected (TASK-021) -->
+  <main id="parent-dashboard" class="parent-dashboard hidden" aria-label="Parent dashboard">
+
+    <!-- Dashboard header -->
+    <header class="dashboard-header">
+      <h1 class="dashboard-header__title">Baby Monitor</h1>
+      <div class="dashboard-header__actions">
+        <!-- Safe Sleep Guide always visible (TASK-044) -->
+        <button id="btn-safe-sleep" class="text-btn text-btn--small" aria-label="Safe Sleep Guide">
+          Safe Sleep
+        </button>
+        <button id="btn-add-monitor" class="icon-btn" aria-label="Add baby monitor" title="Add another baby monitor">
+          <span aria-hidden="true">➕</span>
+        </button>
+        <button id="dark-mode-toggle" class="icon-btn" aria-label="Toggle dark mode" title="Toggle dark mode">
+          <span class="icon-btn__icon" aria-hidden="true" id="theme-icon">🌙</span>
+        </button>
+        <button id="btn-dashboard-settings" class="icon-btn" aria-label="Settings" title="Settings">
+          <span aria-hidden="true">⚙️</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Alert banners: low battery, noise, movement (TASK-036, TASK-027) -->
+    <div id="alert-banners" class="alert-banners" aria-live="assertive" aria-atomic="false">
+      <!-- Alert banners inserted dynamically by js/parent.js -->
+    </div>
+
+    <!-- Baby monitor panels grid (TASK-021, TASK-022) -->
+    <div id="monitor-grid" class="monitor-grid" role="list" aria-label="Connected baby monitors">
+      <!-- Monitor panels inserted dynamically by js/parent.js -->
+      <!-- Empty-state placeholder -->
+      <div id="monitor-grid-empty" class="monitor-grid__empty">
+        <p>No baby monitors connected.</p>
+        <button id="btn-start-pairing" class="action-btn">Connect Baby Monitor</button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Per-baby control panel (TASK-025): slide-out drawer -->
+  <aside id="control-panel" class="control-panel hidden" role="dialog" aria-modal="true"
+         aria-labelledby="control-panel-title">
+    <div class="control-panel__inner">
+      <div class="control-panel__header">
+        <h2 id="control-panel-title" class="control-panel__title">Controls</h2>
+        <button id="control-panel-close" class="icon-btn" aria-label="Close controls">✕</button>
+      </div>
+
+      <!-- Soothing mode (TASK-025) -->
+      <section class="control-group" aria-labelledby="cp-soothing-label">
+        <h3 id="cp-soothing-label">Soothing Mode</h3>
+        <div class="mode-btn-group" role="group" aria-label="Soothing mode">
+          <button class="mode-btn" data-mode="candle" aria-pressed="false">🕯 Candle</button>
+          <button class="mode-btn" data-mode="water" aria-pressed="false">🌊 Water</button>
+          <button class="mode-btn" data-mode="stars" aria-pressed="false">✨ Stars</button>
+          <button class="mode-btn" data-mode="music" aria-pressed="false">🎵 Music</button>
+          <button class="mode-btn" data-mode="off" aria-pressed="true">Off</button>
+        </div>
+      </section>
+
+      <!-- Volume / music (TASK-025) -->
+      <section class="control-group" aria-labelledby="cp-volume-label">
+        <h3 id="cp-volume-label">Music Volume</h3>
+        <input type="range" id="cp-volume" class="volume-slider" min="0" max="100" value="70"
+               aria-label="Music volume" />
+        <div class="track-select">
+          <label for="cp-track-select">Track</label>
+          <select id="cp-track-select" aria-label="Select music track">
+            <!-- Tracks populated dynamically -->
+            <option value="">Loading…</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Fade-out timer (TASK-014) -->
+      <section class="control-group" aria-labelledby="cp-timer-label">
+        <h3 id="cp-timer-label">Fade-out Timer</h3>
+        <div class="timer-btn-group" role="group" aria-label="Fade-out timer duration">
+          <button class="timer-btn" data-duration="15" aria-pressed="false">15 min</button>
+          <button class="timer-btn" data-duration="30" aria-pressed="false">30 min</button>
+          <button class="timer-btn" data-duration="45" aria-pressed="false">45 min</button>
+          <button class="timer-btn" data-duration="60" aria-pressed="false">60 min</button>
+          <button class="timer-btn" data-duration="0" aria-pressed="true">Off</button>
+        </div>
+        <p class="timer-countdown" id="cp-timer-countdown" aria-live="polite"></p>
+      </section>
+
+      <!-- Speak-through (TASK-012) -->
+      <section class="control-group" aria-labelledby="cp-speak-label">
+        <h3 id="cp-speak-label">Speak Through</h3>
+        <button id="cp-speak-btn" class="speak-btn" aria-pressed="false"
+                aria-label="Hold to speak to baby">
+          🎤 Hold to Speak
+        </button>
+        <p class="speak-hint">Hold down to speak; baby device will play your voice.</p>
+      </section>
+
+      <!-- Audio file transfer (TASK-013) -->
+      <section class="control-group" aria-labelledby="cp-audio-label">
+        <h3 id="cp-audio-label">Send Audio File</h3>
+        <div class="file-transfer">
+          <label for="cp-audio-file" class="file-upload-btn">Choose file (MP3, OGG, WAV)</label>
+          <input type="file" id="cp-audio-file" class="visually-hidden"
+                 accept=".mp3,.ogg,.wav,audio/mpeg,audio/ogg,audio/wav"
+                 aria-label="Select audio file to send to baby device" />
+          <button id="cp-send-audio" class="action-btn" disabled>Send to Baby Device</button>
+          <div class="transfer-progress hidden" id="cp-transfer-progress">
+            <progress id="cp-transfer-bar" max="100" value="0" aria-label="Transfer progress"></progress>
+            <span id="cp-transfer-pct">0%</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Camera controls -->
+      <section class="control-group" aria-labelledby="cp-camera-label">
+        <h3 id="cp-camera-label">Camera</h3>
+        <button id="cp-flip-camera" class="action-btn">Flip Camera</button>
+        <label class="toggle-row">
+          <span>Audio only mode</span>
+          <input type="checkbox" id="cp-audio-only" role="switch" />
+        </label>
+      </section>
+
+      <!-- Noise threshold (TASK-024) -->
+      <section class="control-group" aria-labelledby="cp-noise-label">
+        <h3 id="cp-noise-label">Noise Alert Threshold</h3>
+        <input type="range" id="cp-noise-threshold" min="0" max="100" value="60"
+               aria-label="Noise alert sensitivity" />
+      </section>
+
+      <!-- Disconnect -->
+      <section class="control-group">
+        <button id="cp-disconnect" class="action-btn action-btn--danger">Disconnect Baby Monitor</button>
+      </section>
+    </div>
+  </aside>
+
+  <!-- Safe sleep screen (TASK-044) -->
+  <section id="safe-sleep-screen" class="safe-sleep-screen hidden" aria-label="Safe Sleep Guide">
+    <div class="safe-sleep-screen__inner">
+      <button class="back-btn" id="safe-sleep-back" aria-label="Back">← Back</button>
+    </div>
+  </section>
+
+  <!-- Settings screen (TASK-032) -->
+  <section id="settings-screen" class="settings-screen hidden" aria-label="Settings">
+    <div class="settings-screen__inner">
+      <button class="back-btn" id="settings-back" aria-label="Back">← Back</button>
+      <h2>Settings</h2>
+      <p class="placeholder-text">Settings will be available in a future update.</p>
+    </div>
+  </section>
+
+  <script type="module" src="js/parent.js"></script>
+</body>
+</html>
