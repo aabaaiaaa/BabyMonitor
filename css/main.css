@@ -1030,14 +1030,23 @@ textarea {
 /* --------------------------------------------------------------------------
    Disconnected screen
    -------------------------------------------------------------------------- */
+/* TASK-051: The disconnected screen is a fixed overlay that sits above the
+   baby monitor rather than replacing it.  This ensures canvas soothing effects
+   (candle, water, stars) remain visible behind it and audio continues
+   uninterrupted when the connection is lost. */
 .disconnected-screen {
-  min-height: 100dvh;
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-lg) var(--space-md);
-  background: var(--color-bg);
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   text-align: center;
+  color: #fff;
 }
 
 .disconnected-screen__inner {
@@ -1061,6 +1070,12 @@ textarea {
   min-height: 1.5em;
 }
 
+/* TASK-051: On the dark disconnected overlay the muted text colour must be
+   overridden so it remains legible against the near-black background. */
+.disconnected-screen .reconnect-status {
+  color: rgba(255, 255, 255, 0.65);
+}
+
 /* --------------------------------------------------------------------------
    Battery hint text (TASK-028)
    Inline note shown next to toggle labels to indicate battery-saving impact.
@@ -1081,6 +1096,20 @@ textarea {
   font-size: 0.75rem;
   color: var(--color-text-muted);
   line-height: 1.4;
+}
+
+/* TASK-051: Warning variant — highlights iOS screen-sleep limitation. */
+.settings-hint--warning {
+  color: var(--color-text);
+  background: #fff3cd;
+  border-left: 3px solid var(--color-warning);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin-top: var(--space-sm);
+}
+
+.dark-mode .settings-hint--warning {
+  background: rgba(255, 193, 7, 0.12);
 }
 
 /* --------------------------------------------------------------------------

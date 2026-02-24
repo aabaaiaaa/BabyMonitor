@@ -223,6 +223,16 @@ let _fadeTimerIntervalId = null;
 let _fadeTimerStopId = null;
 
 /**
+ * True once the initial soothing mode has been started for the first time.
+ * On every subsequent call to startMonitor() (i.e. after reconnection) soothing
+ * is already running and must NOT be restarted — restarting would interrupt
+ * music, reset the pre-scheduled Web Audio API fade ramp, and cause a canvas
+ * flicker (TASK-051).
+ * @type {boolean}
+ */
+let _soothingInitialized = false;
+
+/**
  * True if music mode automatically applied the screen-dim overlay.
  * Used to restore the previous dim state when leaving music mode.
  * @type {boolean}
@@ -722,6 +732,19 @@ function _onAutoReconnectFailed(reason) {
 const _compatResult = showCompatWarnings();
 
 // ---------------------------------------------------------------------------
+// iOS Wake Lock / soothing warning (TASK-051)
+// The Screen Wake Lock API is unavailable on all iOS browsers (Apple's WebKit
+// restriction).  When the screen sleeps, canvas animation pauses — audio is
+// unaffected.  Show an advisory note in the settings overlay so the user
+// knows to prefer Music mode on iOS devices.
+// ---------------------------------------------------------------------------
+
+if (!('wakeLock' in navigator)) {
+  const iosSoothingWarning = document.getElementById('ios-soothing-warning');
+  if (iosSoothingWarning) iosSoothingWarning.hidden = false;
+}
+
+// ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 
@@ -891,7 +914,9 @@ function showMonitor() {
 function showDisconnected(reason = '') {
   tapOverlay?.classList.add('hidden');
   pairingSection?.classList.add('hidden');
-  babyMonitor?.classList.add('hidden');
+  // TASK-051: Do NOT hide the baby monitor — it remains visible beneath the
+  // disconnected overlay so soothing canvas effects (candle, water, stars)
+  // continue to be displayed for the baby.  Audio also continues uninterrupted.
   disconnectedScreen?.classList.remove('hidden');
   if (disconnectedHeading) disconnectedHeading.textContent = 'Disconnected';
   if (reconnectStatus) reconnectStatus.textContent = reason;
@@ -1439,7 +1464,15 @@ function startMonitor(conn) {
   if (screenDimToggle) screenDimToggle.checked = state.screenDim;
   startBatteryMonitoring(); // TASK-020
   sendStateSnapshot();     // TASK-048
-  startSoothingMode(state.soothingMode);
+  // TASK-051: Only start soothing on the first connection.  On reconnection the
+  // soothing mode is already running (music player / canvas loop / fade timer)
+  // and must not be interrupted.  Calling startSoothingMode() again would stop
+  // and restart audio (clearing the pre-scheduled Web Audio API fade ramp) and
+  // cause a brief canvas flicker.
+  if (!_soothingInitialized) {
+    _soothingInitialized = true;
+    startSoothingMode(state.soothingMode);
+  }
   setupStatusFade();
   _setupSpeakThrough(conn); // TASK-012
   // TASK-061: Send backup ID pool immediately after data channel is ready so
@@ -3006,8 +3039,11 @@ function handleDisconnect(reason) {
     if (babyTransferStatus) babyTransferStatus.classList.add('hidden');
   }
 
-  // Stop any ongoing audio playback (TASK-013)
-  _stopPlayback();
+  // TASK-051: Do NOT stop audio playback on disconnect.
+  // All soothing activity (music, file-transfer audio, canvas effects, fade
+  // timer) must continue uninterrupted regardless of connection state.
+  // Only an explicit user action (local settings) or a MSG received after a
+  // successful reconnection should change the soothing state.
 
   // Stop the speak-through ducking detector and restore gain (TASK-038).
   _stopDuckingDetector();

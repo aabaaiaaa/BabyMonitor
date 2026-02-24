@@ -204,6 +204,14 @@
             <button class="mode-btn" data-mode="music" aria-pressed="false">🎵 Music</button>
             <button class="mode-btn" data-mode="off" aria-pressed="true">Off</button>
           </div>
+          <!-- TASK-051: Note about soothing continuing during disconnection -->
+          <p class="settings-hint">
+            Soothing modes continue even if the connection to the parent device is lost or interrupted.
+          </p>
+          <!-- TASK-051: iOS Wake Lock limitation — screen sleep stops canvas effects -->
+          <p class="settings-hint settings-hint--warning" id="ios-soothing-warning" hidden>
+            <strong>iOS note:</strong> If this device's screen turns off, light effects (Candle, Water, Stars) will pause because iOS does not support the Wake Lock API in web apps. Audio modes (Music) are not affected by screen sleep. For reliable overnight use on iOS, choose Music or leave the screen on.
+          </p>
         </section>
 
         <section class="settings-group" aria-labelledby="camera-label">

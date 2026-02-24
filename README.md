@@ -31,6 +31,14 @@ browser-incompatibility warning. However, it is important to note:
   to work without a wake lock, and the device may dim or sleep after the system
   idle timeout.
 
+  **Impact on soothing modes**: When the iOS device screen sleeps, the browser
+  suspends canvas rendering, so canvas-based light effects (Candle, Water, Stars)
+  will pause visually. **Audio playback is not affected** — music, white noise,
+  and rain sounds continue through screen sleep. If you are using the baby device
+  as an overnight soother on an iOS device, choose **Music mode** (or any
+  audio-only mode) rather than a canvas light effect. The baby monitor settings
+  screen displays this advisory automatically on iOS devices.
+
 - **Background notifications not available on iOS**: Apple's OS does not permit
   web apps to deliver push or background notifications on iPhone and iPad,
   regardless of which browser is used. This is an OS-level restriction that
