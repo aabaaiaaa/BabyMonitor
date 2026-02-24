@@ -112,7 +112,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: On both the parent monitor (for streamed audio) and the baby monitor (for locally played soothing music), implement a configurable fade-out timer. The parent can set a duration (e.g. 15 min, 30 min, 45 min, 60 min, or custom). A visible countdown timer shows remaining time. The timer can be cancelled or reset. When the timer expires, playback stops automatically. The actual volume fade uses an exponential ramp applied over the final 10% of the configured duration, with a minimum fade window of 30 seconds and a maximum of 5 minutes. For example: a 30-minute timer fades over the final 3 minutes; a 60-minute timer fades over the final 5 minutes (capped); a 5-minute timer fades over the final 30 seconds (minimum). The `GainNode` ramp is scheduled in advance using `linearRampToValueAtTime` or `exponentialRampToValueAtTime` so the fade runs smoothly without polling.
 
 ### TASK-015: Implement baby monitor soothing mode UI
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-009
 - **Description**: Build the baby monitor display UI. It should occupy the full screen and show one of three modes: soothing light effect, soothing music (screen dimmed), or blank/off. The mode is controlled either locally on the baby device (with minimal UI — a small settings icon or long-press interaction to avoid disturbing the baby) or remotely via the parent's control panel. The screen brightness should be kept low in soothing modes to avoid disturbing the baby. Display a small status indicator (connection status, battery) in a corner that fades out after a few seconds.

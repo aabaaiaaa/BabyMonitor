@@ -131,6 +131,12 @@
       <span id="baby-battery" class="status-battery" title="Battery level" aria-label="Battery level"></span>
     </div>
 
+    <!-- Settings access button: small gear icon, fades with status indicator (TASK-015).
+         Provides a visible (but minimal, non-disturbing) way to open the settings overlay
+         without requiring knowledge of the triple-tap gesture. -->
+    <button id="soothing-settings-btn" class="soothing-settings-btn"
+            aria-label="Open baby monitor settings">⚙</button>
+
     <!-- File transfer progress overlay (TASK-013): shown while receiving an audio file -->
     <div id="baby-transfer-status" class="baby-transfer-status hidden"
          aria-live="polite" aria-atomic="true">

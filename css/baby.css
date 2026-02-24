@@ -190,6 +190,66 @@ body.baby-screen {
 }
 
 /* --------------------------------------------------------------------------
+   Settings access button (TASK-015)
+   Small gear icon fixed in bottom-left corner. Fades out with the status
+   indicator a few seconds after the last touch/interaction, so it does not
+   distract in a darkened baby room. Kept intentionally dim and small.
+   -------------------------------------------------------------------------- */
+.soothing-settings-btn {
+  position: fixed;
+  bottom: max(var(--space-lg), env(safe-area-inset-bottom));
+  left: max(var(--space-md), env(safe-area-inset-left));
+  z-index: var(--z-overlay);
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 1.05rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity var(--transition-slow), background var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.soothing-settings-btn.faded {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.soothing-settings-btn:hover,
+.soothing-settings-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+  outline: none;
+}
+
+/* --------------------------------------------------------------------------
+   Battery low warning (TASK-020)
+   Applied by JS when battery drops below 20% while not charging.
+   -------------------------------------------------------------------------- */
+.battery-low {
+  color: var(--color-danger) !important;
+  font-weight: 700;
+}
+
+/* --------------------------------------------------------------------------
+   Music mode visual indicator (TASK-015)
+   When soothing mode is "music" the canvas is kept near-black; a faint
+   label in the status area hints that music is playing.
+   -------------------------------------------------------------------------- */
+.baby-monitor[data-soothing-mode="music"] .soothing-canvas {
+  background: #030303 !important;
+}
+
+/* --------------------------------------------------------------------------
    Baby monitor pairing section: dark theme to match baby device aesthetic
    -------------------------------------------------------------------------- */
 body.baby-screen .pairing-section {

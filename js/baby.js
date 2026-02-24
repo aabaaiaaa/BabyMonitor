@@ -168,6 +168,7 @@ const babyConnStatus      = document.getElementById('baby-conn-status');
 const babyBattery         = document.getElementById('baby-battery');
 const touchLockHint       = document.getElementById('touch-lock-hint');
 const babySettingsOverlay = document.getElementById('baby-settings-overlay');
+const soothingSettingsBtn = document.getElementById('soothing-settings-btn');
 
 // Settings overlay elements
 const modeBtns            = babySettingsOverlay?.querySelectorAll('.mode-btn') ?? [];
@@ -686,6 +687,8 @@ async function applyAudioOnlyMode(audioOnly) {
 function startMonitor(conn) {
   showMonitor();
   updateConnectionStatus('connected');
+  // Ensure canvas is pixel-perfect before rendering the first soothing frame.
+  _resizeCanvas();
   // Sync settings UI to current state so toggles reflect reality when overlay opens.
   if (audioOnlyToggle) audioOnlyToggle.checked = state.audioOnly;
   startBatteryMonitoring(); // TASK-020
@@ -710,6 +713,21 @@ function updateConnectionStatus(connState) {
 let _animFrame = null;
 
 /**
+ * Resize the soothing canvas to match the current window dimensions.
+ * Called on init and on every window resize so all canvas-based effects
+ * (candle, water, stars) always render at the correct pixel dimensions.
+ */
+function _resizeCanvas() {
+  if (!soothingCanvas) return;
+  soothingCanvas.width  = window.innerWidth;
+  soothingCanvas.height = window.innerHeight;
+}
+
+// Keep the canvas pixel-perfect whenever the window resizes (orientation
+// change, split-screen, browser chrome appearing/disappearing).
+window.addEventListener('resize', _resizeCanvas, { passive: true });
+
+/**
  * Start the selected soothing mode.
  * Full implementations provided in TASK-016, TASK-017, TASK-018.
  * @param {string} mode
@@ -722,10 +740,17 @@ function startSoothingMode(mode) {
 
   state.soothingMode = mode;
 
+  // Expose current mode on the monitor element for CSS targeting (e.g. music
+  // mode dimming via .baby-monitor[data-soothing-mode="music"]).
+  babyMonitor?.setAttribute('data-soothing-mode', mode);
+
   // Update aria-pressed on mode buttons
   for (const btn of modeBtns) {
     btn.setAttribute('aria-pressed', btn.dataset.mode === mode ? 'true' : 'false');
   }
+
+  // Ensure canvas dimensions are correct before any rendering.
+  _resizeCanvas();
 
   switch (mode) {
     case 'candle': _startCandleEffect();   break; // TASK-016
@@ -748,13 +773,7 @@ function _clearCanvas() {
 function _startCandleEffect() {
   if (!soothingCanvas) return;
   const ctx = soothingCanvas.getContext('2d');
-
-  function resizeCanvas() {
-    soothingCanvas.width  = window.innerWidth;
-    soothingCanvas.height = window.innerHeight;
-  }
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
+  // Canvas already sized by _resizeCanvas() called in startSoothingMode().
 
   function drawFrame() {
     // Placeholder: warm orange fill — full animated candle in TASK-016
@@ -770,15 +789,33 @@ function _startCandleEffect() {
 /** Water effect stub (TASK-017). */
 function _startWaterEffect() {
   if (!soothingCanvas) return;
-  soothingCanvas.style.background = 'linear-gradient(135deg, #0d4f8e, #4db8e8)';
-  // Full animated water in TASK-017
+  // Canvas already sized by _resizeCanvas() called in startSoothingMode().
+  const ctx = soothingCanvas.getContext('2d');
+  // Placeholder: calm blue gradient fill — full animated water in TASK-017
+  const grad = ctx.createLinearGradient(0, 0, soothingCanvas.width, soothingCanvas.height);
+  grad.addColorStop(0, '#0d4f8e');
+  grad.addColorStop(1, '#4db8e8');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, soothingCanvas.width, soothingCanvas.height);
+  soothingCanvas.style.background = '';
 }
 
 /** Stars effect stub (TASK-018). */
 function _startStarsEffect() {
   if (!soothingCanvas) return;
-  soothingCanvas.style.background = 'radial-gradient(ellipse at center, #1a1a4e 0%, #000010 80%)';
-  // Full animated stars in TASK-018
+  // Canvas already sized by _resizeCanvas() called in startSoothingMode().
+  const ctx = soothingCanvas.getContext('2d');
+  // Placeholder: deep space radial gradient — full animated stars in TASK-018
+  const grad = ctx.createRadialGradient(
+    soothingCanvas.width / 2, soothingCanvas.height / 2, 0,
+    soothingCanvas.width / 2, soothingCanvas.height / 2, Math.max(soothingCanvas.width, soothingCanvas.height) / 2,
+  );
+  grad.addColorStop(0,    '#1a1a4e');
+  grad.addColorStop(0.7,  '#0a0a2a');
+  grad.addColorStop(1,    '#000010');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, soothingCanvas.width, soothingCanvas.height);
+  soothingCanvas.style.background = '';
 }
 
 /** Music mode stub (TASK-019). */
@@ -795,20 +832,37 @@ function _startMusicMode() {
 /** @type {number|null} Timeout ID for fading the status bar */
 let _statusFadeTimeout = null;
 
+/**
+ * Set up the status indicator (and settings button) fade behaviour (TASK-015).
+ *
+ * Both elements are shown immediately when the monitor starts, then fade out
+ * after 4 seconds of inactivity. Any touch or click on the monitor surface
+ * brings them back for another 4 seconds so the user can see connection/battery
+ * state without requiring the settings overlay to open.
+ */
 function setupStatusFade() {
   const statusEl = document.getElementById('baby-status');
   if (!statusEl) return;
 
+  /** Show both status and settings button, then schedule a fade. */
   function showStatus() {
     statusEl.classList.remove('faded');
+    soothingSettingsBtn?.classList.remove('faded');
     clearTimeout(_statusFadeTimeout);
     _statusFadeTimeout = setTimeout(() => {
       statusEl.classList.add('faded');
+      soothingSettingsBtn?.classList.add('faded');
     }, 4000);
   }
 
+  // Show immediately when the monitor goes live.
   showStatus();
-  document.addEventListener('touchstart', showStatus, { passive: true });
+
+  // Re-show on any interaction with the monitor area.
+  // Use both touchstart (mobile) and pointerdown (mouse/stylus) so desktop
+  // testing also works; passive:true avoids scroll jank.
+  babyMonitor?.addEventListener('touchstart', showStatus, { passive: true });
+  babyMonitor?.addEventListener('pointerdown', showStatus, { passive: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -1405,6 +1459,14 @@ orientationSelect?.addEventListener('change', () => {
   if (value !== 'auto' && screen.orientation?.lock) {
     screen.orientation.lock(value).catch(() => {});
   }
+});
+
+// Small settings icon button — opens the settings overlay directly (TASK-015).
+// Provides a visible (but minimal) access point in addition to triple-tap.
+soothingSettingsBtn?.addEventListener('click', (e) => {
+  // Prevent the click from bubbling to the monitor-level triple-tap handler.
+  e.stopPropagation();
+  exitTouchLock();
 });
 
 settingsCloseBtn?.addEventListener('click', () => {
