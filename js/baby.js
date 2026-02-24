@@ -70,7 +70,7 @@ const state = {
   currentTrack:  settings.defaultTrack ?? null,
   fadeRemaining: 0,
   cameraFacing:  settings.cameraFacing ?? 'environment',
-  audioOnly:     false,
+  audioOnly:     settings.audioOnly ?? false,
   quality:       settings.videoQuality ?? 'medium',
   locked:        false,
 };
@@ -115,6 +115,7 @@ const offlineQrContainer  = document.getElementById('offline-qr-container');
 const offlineScanVideo    = document.getElementById('offline-scan-video');
 const offlineScanProgress = document.getElementById('offline-scan-progress');
 const pairingInstruction  = document.getElementById('offline-pairing-instruction');
+const pairingStatusOffline = document.getElementById('pairing-status-offline');
 const offlineScannerContainer = document.getElementById('offline-scanner-container');
 
 // Active monitor elements
@@ -326,7 +327,7 @@ async function startPeerJsPairing() {
         console.error('[baby] Error getting stream or calling parent:', err);
         if (pairingStatusPeerjs) {
           pairingStatusPeerjs.textContent =
-            'Error: could not access camera. Please allow camera access and try again.';
+            err.message || 'Could not access camera or microphone. Please check your permissions and try again.';
         }
         // Re-attach listener so the user can retry from the parent side
         peer.on('connection', onParentConnection);
@@ -442,6 +443,10 @@ async function startOfflinePairing() {
     });
   } catch (err) {
     console.error('[baby] Offline pairing error:', err);
+    if (pairingStatusOffline) {
+      pairingStatusOffline.textContent =
+        err.message || 'Pairing failed. Please try again.';
+    }
   }
 }
 
@@ -458,10 +463,26 @@ const QUALITY_PRESETS = {
 
 /**
  * Request camera and microphone access.
+ *
+ * Falls back to audio-only automatically if camera access is denied or
+ * unavailable, updating `state.audioOnly` accordingly.  If even microphone
+ * access is denied the function throws an Error with a user-facing message
+ * that explains how to restore access.
+ *
+ * Camera facing direction is read from `state.cameraFacing` (never hard-coded)
+ * so that TASK-041's camera selection UI can drive it via state.
+ *
  * @returns {Promise<MediaStream>}
+ * @throws {Error} if no media access can be obtained
  */
 async function getUserMediaStream() {
-  const q    = QUALITY_PRESETS[state.quality] ?? QUALITY_PRESETS.medium;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error(
+      'Camera and microphone are not supported in this browser. Try Chrome or Firefox.',
+    );
+  }
+
+  const q = QUALITY_PRESETS[state.quality] ?? QUALITY_PRESETS.medium;
   const constraints = {
     video: state.audioOnly ? false : {
       facingMode: { ideal: state.cameraFacing },
@@ -480,12 +501,129 @@ async function getUserMediaStream() {
     localStream = stream;
     return stream;
   } catch (err) {
-    console.error('[baby] getUserMedia failed:', err);
-    // Fallback to audio-only if camera access denied
-    const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    localStream = audioStream;
-    return audioStream;
+    console.error('[baby] getUserMedia failed:', err.name, err.message);
+    const name = err.name ?? '';
+
+    // A microphone-only request failing means access was denied entirely.
+    if (state.audioOnly) {
+      throw _mediaErrorMessage(name, /* audioOnly */ true);
+    }
+
+    // Camera unavailable or permission denied — fall back to audio-only.
+    console.warn('[baby] Camera unavailable; falling back to audio-only');
+    state.audioOnly = true;
+    if (audioOnlyToggle) audioOnlyToggle.checked = true;
+
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStream = audioStream;
+      return audioStream;
+    } catch (audioErr) {
+      console.error('[baby] Audio-only fallback also failed:', audioErr.name);
+      throw _mediaErrorMessage(audioErr.name ?? '', /* audioOnly */ true);
+    }
   }
+}
+
+/**
+ * Build a user-facing Error for media permission or availability failures.
+ * @param {string}  errorName — DOMException name from getUserMedia
+ * @param {boolean} audioOnly — true if the failing request was for audio only
+ * @returns {Error}
+ */
+function _mediaErrorMessage(errorName, audioOnly) {
+  const denied   = errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError';
+  const notFound = errorName === 'NotFoundError'   || errorName === 'DevicesNotFoundError';
+  if (denied) {
+    return new Error(audioOnly
+      ? 'Microphone access was denied. Please allow microphone access in your browser settings and refresh the page.'
+      : 'Camera and microphone access was denied. Please allow access in your browser settings and refresh the page.',
+    );
+  }
+  if (notFound) {
+    return new Error(audioOnly
+      ? 'No microphone was found. Please connect a microphone and try again.'
+      : 'No camera or microphone was found. Please connect a camera and try again.',
+    );
+  }
+  return new Error(
+    `Could not access ${audioOnly ? 'microphone' : 'camera and microphone'} (${errorName || 'unknown error'}).`,
+  );
+}
+
+/**
+ * Enable or disable video capture (audio-only mode).
+ *
+ * When a live peer connection is active, the video RTCRtpSender's track is
+ * replaced with null (audio-only on) or a fresh video track (audio-only off)
+ * so the change takes effect immediately without renegotiation.
+ *
+ * @param {boolean} audioOnly — true = disable video track, false = re-enable
+ */
+async function applyAudioOnlyMode(audioOnly) {
+  state.audioOnly = audioOnly;
+  saveSetting(SETTING_KEYS.AUDIO_ONLY, audioOnly);
+
+  // Keep the UI checkbox in sync.
+  if (audioOnlyToggle) audioOnlyToggle.checked = audioOnly;
+
+  if (!localStream) {
+    // No active stream yet — state will be applied when getUserMediaStream() is called.
+    return;
+  }
+
+  if (audioOnly) {
+    // Stop all video tracks on the local stream and blank the video sender.
+    for (const track of localStream.getVideoTracks()) {
+      track.stop();
+      localStream.removeTrack(track);
+    }
+    if (activeConnection?.peerConnection) {
+      const videoSender = activeConnection.peerConnection.getSenders()
+        .find(s => s.track?.kind === 'video');
+      if (videoSender) {
+        await videoSender.replaceTrack(null).catch(e => {
+          console.warn('[baby] replaceTrack(null) for audio-only failed:', e);
+        });
+      }
+    }
+  } else {
+    // Re-acquire a video track and push it to the peer connection.
+    try {
+      const q = QUALITY_PRESETS[state.quality] ?? QUALITY_PRESETS.medium;
+      const newVideoStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: state.cameraFacing },
+          width:      { ideal: q.width },
+          height:     { ideal: q.height },
+          frameRate:  { ideal: q.frameRate },
+        },
+        audio: false,
+      });
+      const videoTrack = newVideoStream.getVideoTracks()[0];
+      if (videoTrack) {
+        localStream.addTrack(videoTrack);
+        if (activeConnection?.peerConnection) {
+          // Replace the nulled-out video sender (no renegotiation needed).
+          const senders = activeConnection.peerConnection.getSenders();
+          const videoSender = senders.find(s => s.track === null || s.track?.kind === 'video');
+          if (videoSender) {
+            await videoSender.replaceTrack(videoTrack).catch(e => {
+              console.warn('[baby] replaceTrack(videoTrack) for video re-enable failed:', e);
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[baby] Could not re-enable video:', err);
+      // Revert: stay in audio-only mode if the camera is now unavailable.
+      state.audioOnly = true;
+      if (audioOnlyToggle) audioOnlyToggle.checked = true;
+      saveSetting(SETTING_KEYS.AUDIO_ONLY, true);
+    }
+  }
+
+  sendStateSnapshot();
 }
 
 // ---------------------------------------------------------------------------
@@ -499,6 +637,8 @@ async function getUserMediaStream() {
 function startMonitor(conn) {
   showMonitor();
   updateConnectionStatus('connected');
+  // Sync settings UI to current state so toggles reflect reality when overlay opens.
+  if (audioOnlyToggle) audioOnlyToggle.checked = state.audioOnly;
   startBatteryMonitoring(); // TASK-020
   sendStateSnapshot();     // TASK-048
   startSoothingMode(state.soothingMode);
@@ -729,9 +869,7 @@ function handleDataMessage(msg) {
       break;
 
     case MSG.SET_AUDIO_ONLY:
-      state.audioOnly = msg.value;
-      // Toggle video track in TASK-010
-      sendStateSnapshot();
+      applyAudioOnlyMode(msg.value);
       break;
 
     case MSG.DISCONNECT:
@@ -907,10 +1045,10 @@ for (const btn of modeBtns) {
 flipCameraBtn?.addEventListener('click', flipCamera);
 
 audioOnlyToggle?.addEventListener('change', () => {
-  state.audioOnly = audioOnlyToggle.checked;
-  saveSetting(SETTING_KEYS.CAMERA_FACING, state.cameraFacing);
+  const enabled = audioOnlyToggle.checked;
+  applyAudioOnlyMode(enabled);
   if (activeConnection?.dataChannel) {
-    sendMessage(activeConnection.dataChannel, MSG.SET_AUDIO_ONLY, state.audioOnly);
+    sendMessage(activeConnection.dataChannel, MSG.SET_AUDIO_ONLY, enabled);
   }
 });
 

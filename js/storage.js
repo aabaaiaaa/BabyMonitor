@@ -76,6 +76,7 @@ export const SETTING_KEYS = {
   VIDEO_QUALITY:      'videoquality',    // 'low' | 'medium' | 'high'
   SPEAK_MODE:         'speakmode',       // 'ptt' | 'toggle'
   CAMERA_FACING:      'camerafacing',    // 'user' | 'environment'
+  AUDIO_ONLY:         'audioonly',       // boolean — audio-only mode preference
   ORIENTATION:        'orientation',     // 'auto' | 'portrait' | ...
   PEERJS_SERVER:      'peerjsserver',    // custom PeerJS server config (object|null)
   TURN_CONFIG:        'turnconfig',      // TURN server config (object|null)
@@ -103,6 +104,7 @@ export function getSettings() {
     videoQuality:     lsGet(SETTING_KEYS.VIDEO_QUALITY, 'medium'),
     speakMode:        lsGet(SETTING_KEYS.SPEAK_MODE, 'ptt'),
     cameraFacing:     lsGet(SETTING_KEYS.CAMERA_FACING, 'environment'),
+    audioOnly:        lsGet(SETTING_KEYS.AUDIO_ONLY, false),
     orientation:      lsGet(SETTING_KEYS.ORIENTATION, 'auto'),
     peerjsServer:     lsGet(SETTING_KEYS.PEERJS_SERVER, null),
     turnConfig:       lsGet(SETTING_KEYS.TURN_CONFIG, null),
