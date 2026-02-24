@@ -44,7 +44,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Integrate a QR scanning library (e.g. `jsQR` or `ZXing-js`) that uses the device camera. The scanner must support two modes. (1) Single scan: used in the PeerJS connection method — opens the camera, detects one QR code, and immediately returns the peer ID string. Used when the parent scans the baby's PeerJS ID QR. (2) Multi-scan with reassembly: used in the offline QR fallback — opens the camera, detects all visible QR codes in each frame simultaneously (multiple codes may be on screen at once), tracks which sequence chunks have been received, and displays scan progress (e.g. "3 of 5 scanned"). Once all chunks are received, reassembles the original payload and returns it. Allow re-scanning a chunk if missed. The scanner should auto-detect which mode to use based on whether the first detected payload matches a chunk header format or is a plain peer ID string.
 
 ### TASK-006: Build pairing flow — role selection and connection method
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-004, TASK-005, TASK-060
 - **Description**: Build the pairing wizard UI. On the home screen the user selects "Baby Monitor" or "Parent Monitor". The wizard then offers two connection methods with clear descriptions:

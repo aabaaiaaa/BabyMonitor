@@ -30,7 +30,7 @@ import {
 } from './storage.js';
 import {
   initPeer, destroyPeer,
-  babyCallParent, parentListenPeerJs,
+  babyCallParent, getPeer,
   offlineBabyCreateOffer, offlineBabyReceiveAnswer,
   sendMessage, MSG,
   onPeerStatus, PEER_ERROR,
@@ -270,24 +270,56 @@ async function startPeerJsPairing() {
     if (peerIdText) peerIdText.textContent = peerId;
     if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Waiting for parent to connect…';
 
-    // Listen for the parent to connect to us
-    parentListenPeerJs({
-      onReady(conn) {
-        _peerStatusUnsub?.();
-        _peerStatusUnsub = null;
-        activeConnection = conn;
-        stopScanner();
-        startMonitor(conn);
-      },
-      onState(connState) {
-        if (connState === 'disconnected' || connState === 'failed') {
-          handleDisconnect(connState);
+    // PeerJS pairing flow:
+    // 1. Parent scans our QR code and opens a data connection to this device.
+    // 2. We receive the connection, read the parent's peer ID from conn.peer.
+    // 3. We acquire the media stream and call the parent back with our stream.
+    // 4. Parent listens for our call and receives our video/audio via parentListenPeerJs().
+    const peer = getPeer();
+
+    const onParentConnection = async (dataConn) => {
+      // Ignore if we already navigated away from the pairing step
+      if (pairingPeerjsStep?.classList.contains('hidden')) return;
+
+      // Only handle the first valid connection; remove listener to prevent duplicates
+      peer.off('connection', onParentConnection);
+
+      const parentPeerId = dataConn.peer;
+      if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Parent connected — starting camera…';
+
+      try {
+        localStream = await getUserMediaStream();
+        if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Establishing connection…';
+
+        await babyCallParent(parentPeerId, localStream, {
+          onReady(conn) {
+            _peerStatusUnsub?.();
+            _peerStatusUnsub = null;
+            activeConnection = conn;
+            stopScanner();
+            startMonitor(conn);
+          },
+          onState(connState) {
+            if (connState === 'disconnected' || connState === 'failed') {
+              handleDisconnect(connState);
+            }
+          },
+          onMessage(msg) {
+            handleDataMessage(msg);
+          },
+        });
+      } catch (err) {
+        console.error('[baby] Error getting stream or calling parent:', err);
+        if (pairingStatusPeerjs) {
+          pairingStatusPeerjs.textContent =
+            'Error: could not access camera. Please allow camera access and try again.';
         }
-      },
-      onMessage(msg) {
-        handleDataMessage(msg);
-      },
-    });
+        // Re-attach listener so the user can retry from the parent side
+        peer.on('connection', onParentConnection);
+      }
+    };
+
+    peer.on('connection', onParentConnection);
   } catch (err) {
     // Fatal error: the status listener already updated pairingStatusPeerjs text
     // and may have shown the offline fallback button. Just log for debugging.

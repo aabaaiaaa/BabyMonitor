@@ -33,7 +33,7 @@ import {
 import { renderSafeSleepContent } from './safe-sleep.js';
 import {
   initPeer, destroyPeer,
-  babyCallParent, parentListenPeerJs,
+  parentListenPeerJs, getPeer,
   offlineParentReceiveOffer,
   sendMessage, MSG,
   onPeerStatus, PEER_ERROR,
@@ -153,8 +153,13 @@ async function init() {
   await showNotificationPermissionScreen(notifScreen); // TASK-047
   showDashboard();
 
-  // If the user has no monitors yet, jump straight to pairing
-  if (monitors.size === 0) {
+  // Check URL params before deciding which screen to show first.
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('mode') === 'add-parent') {
+    // Launched from "Add Parent Device" on the home screen
+    showAddParent();
+  } else if (monitors.size === 0) {
+    // No monitors connected yet — jump straight to pairing wizard
     showPairing();
   }
 }
@@ -298,9 +303,15 @@ async function startPeerJsPairing() {
       },
     });
 
-    if (peerjsScanStatus) peerjsScanStatus.textContent = 'Connecting…';
+    if (peerjsScanStatus) peerjsScanStatus.textContent = 'Connecting to baby device…';
+    stopScanner();
 
-    // Listen for the baby to call us back
+    // PeerJS pairing flow:
+    // 1. We scanned the baby's QR code and have the baby's peer ID.
+    // 2. We set up parentListenPeerJs() to receive the baby's incoming media call.
+    // 3. We open a data connection to the baby device, signalling that a parent
+    //    is ready — this triggers the baby to call us back with its media stream.
+    // 4. When the baby calls, parentListenPeerJs fires onReady with the connection.
     parentListenPeerJs({
       onReady(conn) {
         _peerStatusUnsub?.();
@@ -315,12 +326,24 @@ async function startPeerJsPairing() {
         }
       },
       onMessage(msg) {
+        // Route the message to the correct monitor using the baby's peer ID.
+        // After addMonitor() the entry is keyed by conn.deviceId which equals babyPeerId.
         handleDataMessage(babyPeerId, msg);
       },
     });
 
-    // The baby device displays a QR with its peer ID; we just scanned it.
-    // We are now registered with PeerJS and listening — the baby will call() us.
+    // Open a data connection to the baby. The baby's peer.on('connection') handler
+    // receives this, reads our peer ID, then calls us back with its media stream.
+    const peer = getPeer();
+    const triggerConn = peer.connect(babyPeerId, { reliable: true });
+    triggerConn.on('error', (err) => {
+      console.error('[parent] Trigger data connection to baby failed:', err);
+      if (!pairingPeerjsStep?.classList.contains('hidden')) {
+        if (peerjsScanStatus) {
+          peerjsScanStatus.textContent = 'Failed to reach baby device. Please try again.';
+        }
+      }
+    });
   } catch (err) {
     // Fatal error: status listener already updated the UI text.
     console.error('[parent] PeerJS pairing fatal error:', err);
