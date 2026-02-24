@@ -47,6 +47,31 @@ browser-incompatibility warning. However, it is important to note:
   browsers. The QR-based offline pairing (TASK-004 / TASK-005) and PeerJS
   quick-pair (TASK-006) flows have been designed to work within these constraints.
 
+## Why you must tap before the app starts
+
+Every time you open the app — on both the baby device and the parent device — you
+will see a full-screen **"Tap anywhere to begin"** overlay before anything else loads.
+
+**This is a hard browser security requirement, not a bug.**
+
+Browsers enforce an *autoplay policy* that prevents any page from creating or
+resuming an `AudioContext`, or calling `getUserMedia` (camera and microphone
+access), unless the user has first interacted with the page. This policy exists
+to stop websites from playing sound or accessing media without your knowledge.
+
+The tap-to-begin overlay is the minimal interaction needed to satisfy this
+requirement. After the tap:
+- The `AudioContext` is unlocked so audio can be played on the baby device and
+  monitored on the parent device.
+- `getUserMedia` can be called to request camera and microphone access on the
+  baby device.
+- The WebRTC connection and pairing flow proceed normally.
+
+**The gesture cannot be bypassed, stored, or cached across sessions.** Even if
+you install the app as a PWA and reopen it, you will always see the overlay on
+every fresh load. This is intentional and correct behaviour — it is the browser
+enforcing its own security model, and there is no way to opt out.
+
 ## Getting started
 
 Open `index.html` on two devices connected to the same Wi-Fi network, or serve
