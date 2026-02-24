@@ -247,6 +247,12 @@ async function startCamera(videoEl, constraints = {}) {
 
 /**
  * Scan frames from a video element using jsQR.
+ * Attempts to detect ALL visible QR codes in each frame using iterative
+ * masking: after each successful decode the found region is painted over
+ * with black on the canvas so jsQR can discover additional codes in the
+ * same frame.  This allows a QR grid (multiple codes on screen at once)
+ * to be captured in a single camera frame rather than one code at a time.
+ *
  * Calls `onFrame` with an array of decoded strings found in each frame.
  *
  * @param {HTMLVideoElement} videoEl
@@ -257,6 +263,9 @@ async function startCamera(videoEl, constraints = {}) {
 function scanFrames(videoEl, onFrame) {
   const canvas = document.createElement('canvas');
   const ctx    = canvas.getContext('2d', { willReadFrequently: true });
+
+  /** Safety cap: maximum QR codes decoded per single camera frame. */
+  const MAX_CODES_PER_FRAME = 16;
 
   return new Promise((resolve) => {
     let cancelled = false;
@@ -271,24 +280,49 @@ function scanFrames(videoEl, onFrame) {
       canvas.height = videoEl.videoHeight;
       ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
 
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      // Iteratively decode every QR code visible in the current frame.
+      //
+      // Algorithm:
+      //   1. Read pixel data from the canvas.
+      //   2. Run jsQR over it — it returns at most one code per call.
+      //   3. If a code is found, record its data, then mask its bounding
+      //      polygon on the canvas with a black fill so that the next
+      //      iteration cannot find the same code again.
+      //   4. Repeat until jsQR finds nothing (no more codes in frame)
+      //      or the safety cap is reached.
+      //
+      // This enables simultaneous detection of all chunk QR codes that
+      // are visible at once when the parent holds the camera over the
+      // baby device's QR grid display.
+      const codesInFrame = [];
 
-      // Decode all QR codes visible in this frame.
-      // jsQR decodes one code at a time; for multi-QR we would need a
-      // different approach (ZXing or custom detection), but for the
-      // single-scan mode jsQR is sufficient.
-      // Multi-QR scanning (TASK-005) will scan one code per frame and
-      // accumulate results — the grid QR codes are shown all at once so
-      // the parent can move the camera to catch each one.
-      const code = typeof jsQR !== 'undefined'
-        ? jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: 'dontInvert',
-          })
-        : null;
+      for (let i = 0; i < MAX_CODES_PER_FRAME; i++) {
+        if (typeof jsQR === 'undefined') break;
 
-      const decoded = code ? [code.data] : [];
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: 'dontInvert',
+        });
 
-      if (onFrame(decoded)) {
+        if (!code) break; // No more codes detectable in this frame
+
+        codesInFrame.push(code.data);
+
+        // Mask the found code's region so subsequent iterations find others.
+        // jsQR exposes the four corner points of the code's bounding quad.
+        const { topLeftCorner, topRightCorner, bottomRightCorner, bottomLeftCorner } =
+          code.location;
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.moveTo(topLeftCorner.x,     topLeftCorner.y);
+        ctx.lineTo(topRightCorner.x,    topRightCorner.y);
+        ctx.lineTo(bottomRightCorner.x, bottomRightCorner.y);
+        ctx.lineTo(bottomLeftCorner.x,  bottomLeftCorner.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      if (onFrame(codesInFrame)) {
         cancelled = true;
         resolve();
         return;
@@ -298,9 +332,6 @@ function scanFrames(videoEl, onFrame) {
     }
 
     requestAnimationFrame(tick);
-
-    // Expose a cancel method on the returned promise
-    resolve._cancel = () => { cancelled = true; resolve(); };
   });
 }
 
