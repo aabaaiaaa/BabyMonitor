@@ -87,6 +87,14 @@ let _peerStatusUnsub = null;
 /** @type {WakeLockSentinel|null} Screen wake lock (TASK-003) */
 let wakeLock = null;
 
+/**
+ * True once a low-battery ALERT_BATTERY_LOW message has been sent to the
+ * parent during this connection session. Reset when the battery recovers
+ * above 20%, so a future drop triggers a fresh alert.
+ * @type {boolean}
+ */
+let _batteryAlertSent = false;
+
 // ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
@@ -300,7 +308,13 @@ async function startPeerJsPairing() {
             startMonitor(conn);
           },
           onState(connState) {
-            if (connState === 'disconnected' || connState === 'failed') {
+            if (connState === 'reconnecting') {
+              updateConnectionStatus('reconnecting');
+              // Notify parent that baby's connection is temporarily degraded
+              if (activeConnection?.dataChannel) {
+                sendMessage(activeConnection.dataChannel, MSG.CONN_STATUS, connState);
+              }
+            } else if (connState === 'disconnected' || connState === 'failed') {
               handleDisconnect(connState);
             }
           },
@@ -377,7 +391,12 @@ async function startOfflinePairing() {
         startMonitor(conn);
       },
       onState(s) {
-        if (s === 'disconnected' || s === 'failed') handleDisconnect(s);
+        if (s === 'reconnecting') {
+          updateConnectionStatus('reconnecting');
+          if (activeConnection?.dataChannel) {
+            sendMessage(activeConnection.dataChannel, MSG.CONN_STATUS, s);
+          }
+        } else if (s === 'disconnected' || s === 'failed') handleDisconnect(s);
       },
       onMessage(msg) {
         handleDataMessage(msg);
@@ -413,7 +432,12 @@ async function startOfflinePairing() {
         startMonitor(conn);
       },
       onState(s) {
-        if (s === 'disconnected' || s === 'failed') handleDisconnect(s);
+        if (s === 'reconnecting') {
+          updateConnectionStatus('reconnecting');
+          if (activeConnection?.dataChannel) {
+            sendMessage(activeConnection.dataChannel, MSG.CONN_STATUS, s);
+          }
+        } else if (s === 'disconnected' || s === 'failed') handleDisconnect(s);
       },
     });
   } catch (err) {
@@ -622,8 +646,15 @@ async function startBatteryMonitoring() {
       // Local low-battery warning
       if (level < 20 && !charging) {
         babyBattery?.classList.add('battery-low');
+        // Send a dedicated alert to the parent once per low-battery episode
+        // (distinct from the regular periodic BATTERY_LEVEL broadcast)
+        if (activeConnection?.dataChannel && !_batteryAlertSent) {
+          _batteryAlertSent = true;
+          sendMessage(activeConnection.dataChannel, MSG.ALERT_BATTERY_LOW, { level });
+        }
       } else {
         babyBattery?.classList.remove('battery-low');
+        _batteryAlertSent = false; // Reset so a future drop triggers a new alert
       }
     }
 
@@ -718,6 +749,28 @@ function handleDataMessage(msg) {
 
     case MSG.SPEAK_STOP:
       // Stop parent audio in TASK-012
+      break;
+
+    case MSG.FILE_META:
+      // TASK-013 — parent is initiating an audio file transfer to baby
+      // Full implementation in TASK-013: prepare IndexedDB record and ACK
+      break;
+
+    case MSG.FILE_CHUNK:
+      // TASK-013 — append incoming chunk to the in-progress file transfer
+      break;
+
+    case MSG.FILE_COMPLETE:
+      // TASK-013 — all chunks received; finalise and store file in IndexedDB
+      break;
+
+    case MSG.FILE_ABORT:
+      // TASK-013 — parent aborted the file transfer; discard any partial data
+      break;
+
+    case MSG.ID_POOL:
+      // TASK-061 — parent is sending a pre-agreed pool of backup peer IDs
+      // Full implementation in TASK-061: persist pool for reconnection
       break;
 
     default:

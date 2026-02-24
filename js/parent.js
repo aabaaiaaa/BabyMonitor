@@ -865,6 +865,48 @@ function handleDataMessage(deviceId, msg) {
       break;
     }
 
+    case MSG.ALERT_BATTERY_LOW: {
+      // Explicit low-battery alert sent by baby when it crosses the 20% threshold.
+      // showBatteryAlert() handles deduplication via the activeAlerts Set, so it
+      // is safe to call even if a BATTERY_LEVEL alert was already shown.
+      const { level } = msg.value ?? {};
+      if (entry) showBatteryAlert(deviceId, level ?? 0, entry.label);
+      break;
+    }
+
+    case MSG.CONN_STATUS: {
+      // Baby is reporting its own connection state (e.g. 'reconnecting').
+      // Update the status badge on the monitor panel so the parent can see it.
+      if (!entry) break;
+      const statusBadge = entry.panelEl?.querySelector('.status-badge');
+      if (statusBadge) {
+        statusBadge.className = 'status-badge';
+        if (msg.value === 'connected')    statusBadge.classList.add('connected');
+        if (msg.value === 'reconnecting') statusBadge.classList.add('reconnecting');
+      }
+      break;
+    }
+
+    case MSG.ID_POOL: {
+      // TASK-061 — baby is sending its pre-agreed pool of backup peer IDs.
+      // Persist to the device profile so the parent can use them for reconnection.
+      if (entry) {
+        const profile = getDeviceProfile(deviceId);
+        if (profile) {
+          saveDeviceProfile({ ...profile, backupPoolJson: JSON.stringify(msg.value ?? []) });
+        }
+      }
+      break;
+    }
+
+    case MSG.FILE_META:
+    case MSG.FILE_CHUNK:
+    case MSG.FILE_COMPLETE:
+    case MSG.FILE_ABORT:
+      // File transfers are parent→baby only; receiving these from baby is unexpected.
+      console.warn('[parent] Unexpected file transfer message received from baby:', msg.type);
+      break;
+
     default:
       console.log('[parent] Unhandled message from', deviceId, ':', msg.type);
   }
