@@ -200,6 +200,127 @@ const bgBannerInstall     = document.getElementById('bg-banner-install');
 const bgBannerDismiss     = document.getElementById('bg-banner-dismiss');
 
 // ---------------------------------------------------------------------------
+// Backup PeerJS ID pool (TASK-061)
+//
+// To support automatic reconnection (TASK-030) and second-parent access
+// (TASK-058) without re-pairing, the baby device pre-generates a pool of
+// backup PeerJS peer IDs.  On first connection the full pool is sent to the
+// parent via the data channel.  On reconnect, the baby registers the next
+// pool ID with PeerJS; the parent (who holds the pool) can try them in order.
+// When the pool is running low (< ID_POOL_REPLENISH_THRESHOLD unused IDs),
+// a fresh batch is appended and broadcast to ALL connected parents.
+// ---------------------------------------------------------------------------
+
+/** Number of UUIDs to generate per pool batch. */
+const ID_POOL_BATCH_SIZE = 20;
+
+/** Trigger replenishment when fewer than this many unused IDs remain. */
+const ID_POOL_REPLENISH_THRESHOLD = 5;
+
+/**
+ * Return the persisted ID pool and current index, creating a fresh pool of
+ * ID_POOL_BATCH_SIZE UUIDs if none exists yet.  Called on every connection
+ * and whenever the pool needs to be read or modified.
+ *
+ * @returns {{ pool: string[], index: number }}
+ */
+function _getOrCreateIdPool() {
+  let pool = lsGet(SETTING_KEYS.BACKUP_ID_POOL, null);
+  if (!Array.isArray(pool) || pool.length === 0) {
+    pool = Array.from({ length: ID_POOL_BATCH_SIZE }, () => crypto.randomUUID());
+    lsSet(SETTING_KEYS.BACKUP_ID_POOL, pool);
+    lsSet(SETTING_KEYS.BACKUP_POOL_INDEX, 0);
+    console.log('[baby] Created backup ID pool with', pool.length, 'IDs (TASK-061)');
+  }
+  const index = lsGet(SETTING_KEYS.BACKUP_POOL_INDEX, 0);
+  return { pool, index };
+}
+
+/**
+ * Send the full backup ID pool and current index to a connected parent device
+ * via the data channel (MSG.ID_POOL).  Called immediately after a data
+ * connection is established (TASK-009) so the parent can use the pool for
+ * auto-reconnection (TASK-030) and second-parent access (TASK-058).
+ *
+ * @param {{ dataChannel: object }} conn — normalised connection object
+ */
+function _sendIdPool(conn) {
+  if (!conn?.dataChannel) return;
+  const { pool, index } = _getOrCreateIdPool();
+  sendMessage(conn.dataChannel, MSG.ID_POOL, { pool, index });
+  console.log('[baby] Sent backup ID pool to parent — pool length', pool.length, ', index', index, '(TASK-061)');
+}
+
+/**
+ * Broadcast the full backup ID pool and current index to ALL currently
+ * connected parent devices.  For single-parent sessions this is identical
+ * to _sendIdPool(); when TASK-058 adds a second parent, both connections
+ * are updated so neither works from a stale pool.
+ *
+ * @param {string[]} pool  — current pool array
+ * @param {number}   index — current pool index
+ */
+function _broadcastIdPoolToAllParents(pool, index) {
+  // activeConnection covers the primary parent (and the only parent before TASK-058).
+  if (activeConnection?.dataChannel) {
+    sendMessage(activeConnection.dataChannel, MSG.ID_POOL, { pool, index });
+  }
+  // TASK-058: when additional parent connections are tracked, send to each here.
+}
+
+/**
+ * Check whether the pool is running low and generate additional IDs if needed.
+ * When fewer than ID_POOL_REPLENISH_THRESHOLD unused IDs remain, a fresh batch
+ * of ID_POOL_BATCH_SIZE UUIDs is appended, persisted, and broadcast to all
+ * currently connected parent devices (TASK-061).
+ *
+ * Safe to call at any time — is a no-op when the pool has plenty of IDs left.
+ */
+function _checkAndReplenishPool() {
+  const { pool, index } = _getOrCreateIdPool();
+  const unused = pool.length - index;
+  if (unused >= ID_POOL_REPLENISH_THRESHOLD) return; // plenty left — nothing to do
+
+  const newIds = Array.from({ length: ID_POOL_BATCH_SIZE }, () => crypto.randomUUID());
+  const updatedPool = [...pool, ...newIds];
+  lsSet(SETTING_KEYS.BACKUP_ID_POOL, updatedPool);
+  console.log(
+    '[baby] Replenishing ID pool: was', pool.length, '(', unused, 'unused),',
+    'now', updatedPool.length, '(TASK-061)',
+  );
+  // Broadcast the updated pool so ALL parents stay in sync (TASK-058 requirement).
+  _broadcastIdPoolToAllParents(updatedPool, index);
+}
+
+/**
+ * Advance the pool index to the next backup ID for reconnection.
+ *
+ * Called by TASK-030's auto-reconnect flow when the primary peer ID is no
+ * longer reachable.  Returns the next pool ID to register with PeerJS via
+ * `initPeer(null, null, nextId)`, or null if the pool is exhausted (this
+ * should not happen if _checkAndReplenishPool() is working correctly).
+ *
+ * After advancing, triggers a replenishment check so parents receive fresh
+ * IDs before the pool runs dry.
+ *
+ * @returns {string|null} the next peer ID to register, or null if exhausted
+ */
+function _advanceIdPoolForReconnect() {
+  const { pool, index } = _getOrCreateIdPool();
+  const nextIndex = index + 1;
+  if (nextIndex >= pool.length) {
+    console.warn('[baby] Backup ID pool exhausted — cannot advance for reconnect (TASK-061)');
+    return null;
+  }
+  lsSet(SETTING_KEYS.BACKUP_POOL_INDEX, nextIndex);
+  const nextId = pool[nextIndex];
+  console.log('[baby] Advanced pool index to', nextIndex, '— next peer ID:', nextId, '(TASK-061)');
+  // Check replenishment now so parents receive new IDs over the reconnected channel.
+  _checkAndReplenishPool();
+  return nextId;
+}
+
+// ---------------------------------------------------------------------------
 // Browser compatibility check (TASK-045)
 // Run immediately at module load — before any user interaction or init().
 // ---------------------------------------------------------------------------
@@ -937,6 +1058,12 @@ function startMonitor(conn) {
   startSoothingMode(state.soothingMode);
   setupStatusFade();
   _setupSpeakThrough(conn); // TASK-012
+  // TASK-061: Send backup ID pool immediately after data channel is ready so
+  // the parent can use it for auto-reconnection (TASK-030) and second-parent
+  // access (TASK-058).  Also check replenishment in case the pool has shrunk
+  // from a previous session's reconnects.
+  _sendIdPool(conn);
+  _checkAndReplenishPool();
 }
 
 /** Update the connection status indicator. */
@@ -1628,8 +1755,10 @@ function handleDataMessage(msg) {
       break;
 
     case MSG.ID_POOL:
-      // TASK-061 — parent is sending a pre-agreed pool of backup peer IDs
-      // Full implementation in TASK-061: persist pool for reconnection
+      // TASK-061 — MSG.ID_POOL is sent baby→parent, never parent→baby.
+      // The baby generates the pool; the parent stores it for reconnection.
+      // No action needed here; log unexpected receipt and ignore.
+      console.warn('[baby] Unexpected MSG.ID_POOL received from parent (TASK-061)');
       break;
 
     default:

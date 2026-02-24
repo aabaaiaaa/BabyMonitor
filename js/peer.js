@@ -229,15 +229,18 @@ export function getPeerInstance() {
  * localStorage), registers it with the PeerJS cloud signaling server (or a
  * configured custom server), and wires up all lifecycle event handlers.
  *
- * @param {object}   [options]
- * @param {object}   [options.serverConfig]   — explicit PeerJS server config;
- *                                               falls back to SETTING_KEYS.PEERJS_SERVER
- * @param {Function} [options.onError]        — (detail: PeerErrorDetail) called on errors
+ * @param {object}      [options]
+ * @param {object}      [options.serverConfig]   — explicit PeerJS server config;
+ *                                                  falls back to SETTING_KEYS.PEERJS_SERVER
+ * @param {Function}    [options.onError]        — (detail: PeerErrorDetail) called on errors
+ * @param {string|null} [options.overridePeerId] — use this specific peer ID instead of the
+ *                                                  stored one (TASK-061: reconnect via backup
+ *                                                  pool ID)
  * @returns {Promise<string>} Resolves with the registered peer ID on first 'open',
  *                            rejects on fatal errors (server unavailable, etc.)
  */
 export function initPeerManager(options = {}) {
-  const { serverConfig = null, onError = null } = options;
+  const { serverConfig = null, onError = null, overridePeerId = null } = options;
 
   // Store active config so reconnect attempts can reuse it
   _activeServerConfig = serverConfig;
@@ -249,7 +252,7 @@ export function initPeerManager(options = {}) {
   _reconnectAttempts = 0;
   _setStatus('registering');
 
-  return _createPeer(serverConfig, onError);
+  return _createPeer(serverConfig, onError, overridePeerId);
 }
 
 // ---------------------------------------------------------------------------

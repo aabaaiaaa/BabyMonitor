@@ -99,12 +99,15 @@ export function getIceServers() {
  * Uses the stable UUID-based peer ID from localStorage (or creates one).
  * Wires full lifecycle handling: open, disconnected, error, close.
  *
- * @param {object|null} [serverConfig] — optional custom PeerJS server config (TASK-008)
- * @param {Function}    [onError]      — (detail: PeerErrorDetail) callback for errors
+ * @param {object|null} [serverConfig]   — optional custom PeerJS server config (TASK-008)
+ * @param {Function}    [onError]        — (detail: PeerErrorDetail) callback for errors
+ * @param {string|null} [overridePeerId] — register with this specific peer ID instead of the
+ *                                          persisted one; used by TASK-061 auto-reconnect when
+ *                                          the baby device advances to the next pool ID
  * @returns {Promise<string>} the local peer ID once registered with the server
  */
-export function initPeer(serverConfig = null, onError = null) {
-  return initPeerManager({ serverConfig, onError });
+export function initPeer(serverConfig = null, onError = null, overridePeerId = null) {
+  return initPeerManager({ serverConfig, onError, overridePeerId });
 }
 
 /**

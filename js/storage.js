@@ -81,6 +81,8 @@ export const SETTING_KEYS = {
   PEERJS_SERVER:      'peerjsserver',    // custom PeerJS server config (object|null)
   TURN_CONFIG:        'turnconfig',      // TURN server config (object|null)
   PAIRED_DEVICES:     'paireddevices',   // array of saved device profiles
+  BACKUP_ID_POOL:     'backuppool',      // string[] — baby device's pre-agreed backup peer ID pool (TASK-061)
+  BACKUP_POOL_INDEX:  'backuppoolidx',   // number  — current index into the backup pool (TASK-061)
 };
 
 /**
@@ -128,12 +130,16 @@ export function saveSetting(key, value) {
 
 /**
  * @typedef {object} DeviceProfile
- * @property {string} id              — device's unique ID
- * @property {string} label           — user-assigned label
- * @property {number} noiseThreshold  — noise alert threshold (0–100)
- * @property {number} motionThreshold — motion alert threshold (0–100)
- * @property {number} batteryThreshold— low battery alert threshold (%)
- * @property {string|null} backupPoolJson — JSON for the pre-agreed backup ID pool
+ * @property {string}      id               — device's unique ID
+ * @property {string}      label            — user-assigned label
+ * @property {number}      noiseThreshold   — noise alert threshold (0–100)
+ * @property {number}      motionThreshold  — motion alert threshold (0–100)
+ * @property {number}      batteryThreshold — low battery alert threshold (%)
+ * @property {string|null} backupPoolJson   — JSON for the pre-agreed backup ID pool:
+ *                                            serialised as { pool: string[], index: number }
+ *                                            where pool is the full array of backup peer IDs
+ *                                            and index is the current/last-known pool index.
+ *                                            (TASK-061)
  */
 
 /**
@@ -165,10 +171,10 @@ export function saveDeviceProfile(profile) {
     profiles[idx] = { ...profiles[idx], ...profile };
   } else {
     profiles.push({
-      noiseThreshold: 60,
+      noiseThreshold:  60,
       motionThreshold: 50,
       batteryThreshold: 15,
-      backupPoolJson: null,
+      backupPoolJson:  null, // TASK-061: populated when baby sends its ID pool
       ...profile,
     });
   }

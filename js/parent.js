@@ -57,20 +57,22 @@ const MAX_MONITORS = 4;
 
 /**
  * @typedef {object} MonitorEntry
- * @property {string}        deviceId
- * @property {string}        label
- * @property {object}        conn          — normalised connection
- * @property {MediaStream|null}   mediaStream
- * @property {HTMLElement}   panelEl
- * @property {AudioContext}  audioCtx
+ * @property {string}          deviceId
+ * @property {string}          label
+ * @property {object}          conn            — normalised connection
+ * @property {MediaStream|null} mediaStream
+ * @property {HTMLElement}     panelEl
+ * @property {AudioContext}    audioCtx
  * @property {MediaStreamAudioSourceNode|null} sourceNode — TASK-011: stored for cleanup
- * @property {GainNode}      gainNode      — TASK-011 / TASK-056 hookup: volume + smooth ramp
- * @property {AnalyserNode}  analyserNode  — TASK-024 hookup: noise visualiser
- * @property {number}        desiredGain   — TASK-011: last user-set gain (0–1); preserved across mute
- * @property {number}        noiseThreshold
- * @property {boolean}       audioMuted
- * @property {object|null}   babyState     — TASK-025: last STATE_SNAPSHOT from baby device
- * @property {boolean}       powerSaverMode — TASK-028: reduced analysis frequency on this monitor
+ * @property {GainNode}        gainNode        — TASK-011 / TASK-056 hookup: volume + smooth ramp
+ * @property {AnalyserNode}    analyserNode    — TASK-024 hookup: noise visualiser
+ * @property {number}          desiredGain     — TASK-011: last user-set gain (0–1); preserved across mute
+ * @property {number}          noiseThreshold
+ * @property {boolean}         audioMuted
+ * @property {object|null}     babyState       — TASK-025: last STATE_SNAPSHOT from baby device
+ * @property {boolean}         powerSaverMode  — TASK-028: reduced analysis frequency on this monitor
+ * @property {string[]|null}   backupPool      — TASK-061: backup peer ID pool received from baby
+ * @property {number}          backupPoolIndex — TASK-061: last known pool index (synced via MSG.ID_POOL)
  */
 
 /** @type {Map<string, MonitorEntry>} deviceId → monitor entry */
@@ -697,22 +699,40 @@ function addMonitor(conn) {
   const panelEl = createMonitorPanel(deviceId, profile.label, conn);
   monitorGrid?.insertBefore(panelEl, monitorGridEmpty ?? null);
 
+  // TASK-061: Restore backup pool from device profile if present.
+  // The pool is stored as JSON { pool: string[], index: number } in backupPoolJson.
+  let _restoredPool  = null;
+  let _restoredIndex = 0;
+  if (profile.backupPoolJson) {
+    try {
+      const poolData = JSON.parse(profile.backupPoolJson);
+      if (Array.isArray(poolData.pool)) {
+        _restoredPool  = poolData.pool;
+        _restoredIndex = typeof poolData.index === 'number' ? poolData.index : 0;
+      }
+    } catch {
+      // Corrupt stored value — starts fresh; pool will be re-sent by baby on connect
+    }
+  }
+
   /** @type {MonitorEntry} */
   const entry = {
     deviceId,
-    label:          profile.label,
+    label:            profile.label,
     conn,
-    mediaStream:    conn.mediaStream,
+    mediaStream:      conn.mediaStream,
     panelEl,
     audioCtx,
-    sourceNode,           // stored for disconnection on cleanup (TASK-011)
+    sourceNode,             // stored for disconnection on cleanup (TASK-011)
     gainNode,
-    analyserNode:   analyser,
-    desiredGain:    initialGain, // preserved across mute/unmute (TASK-050)
-    noiseThreshold: profile.noiseThreshold,
-    audioMuted:     false,
-    babyState:      null, // TASK-025: last known baby state (updated by STATE_SNAPSHOT)
-    powerSaverMode: false, // TASK-028: reduced analysis frequency
+    analyserNode:     analyser,
+    desiredGain:      initialGain, // preserved across mute/unmute (TASK-050)
+    noiseThreshold:   profile.noiseThreshold,
+    audioMuted:       false,
+    babyState:        null, // TASK-025: last known baby state (updated by STATE_SNAPSHOT)
+    powerSaverMode:   false, // TASK-028: reduced analysis frequency
+    backupPool:       _restoredPool,  // TASK-061: backup peer ID pool
+    backupPoolIndex:  _restoredIndex, // TASK-061: last known pool index
   };
 
   monitors.set(deviceId, entry);
@@ -776,6 +796,75 @@ function refreshGridEmpty() {
       ? 'Maximum 4 baby monitors connected'
       : 'Add baby monitor';
   }
+}
+
+/**
+ * Return the unused backup peer IDs for a baby device, starting from the
+ * last known pool index.
+ *
+ * Used by TASK-030's auto-reconnect logic when the primary peer ID is no
+ * longer reachable.  The parent should try each returned ID in order until
+ * one successfully connects; after a successful reconnect it should call
+ * updateBackupPoolIndex() to record the new index.
+ *
+ * Falls back to the persisted device profile if the in-memory entry has no
+ * pool (e.g. after a page reload, before the baby sends a fresh MSG.ID_POOL).
+ *
+ * @param {string} deviceId
+ * @returns {{ ids: string[], startIndex: number }|null} null if no pool is stored
+ */
+function getBackupPoolForReconnect(deviceId) {
+  const entry = monitors.get(deviceId);
+
+  // Use in-memory entry first (most up-to-date after replenishment broadcasts).
+  if (entry?.backupPool?.length) {
+    const startIndex = entry.backupPoolIndex;
+    const ids = entry.backupPool.slice(startIndex);
+    return ids.length > 0 ? { ids, startIndex } : null;
+  }
+
+  // Fall back to persisted profile (available even after a full app restart).
+  try {
+    const profile = getDeviceProfile(deviceId);
+    if (!profile?.backupPoolJson) return null;
+    const poolData = JSON.parse(profile.backupPoolJson);
+    if (!Array.isArray(poolData.pool)) return null;
+    const startIndex = typeof poolData.index === 'number' ? poolData.index : 0;
+    const ids = poolData.pool.slice(startIndex);
+    return ids.length > 0 ? { ids, startIndex } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Update the in-memory pool index for a device after a successful reconnect
+ * using a backup pool ID.
+ *
+ * Called by TASK-030 once a backup pool ID has been verified as working.
+ * Also persists the new index to the device profile so subsequent restarts
+ * start from the correct position.
+ *
+ * @param {string} deviceId
+ * @param {number} newIndex — the pool index of the ID that successfully connected
+ */
+function updateBackupPoolIndex(deviceId, newIndex) {
+  const entry = monitors.get(deviceId);
+  if (entry) {
+    entry.backupPoolIndex = newIndex;
+  }
+  // Persist so the index is correct after a page reload.
+  try {
+    const profile = getDeviceProfile(deviceId);
+    if (profile?.backupPoolJson) {
+      const poolData = JSON.parse(profile.backupPoolJson);
+      poolData.index = newIndex;
+      saveDeviceProfile({ ...profile, backupPoolJson: JSON.stringify(poolData) });
+    }
+  } catch {
+    // Non-fatal — the baby will re-send the pool (with updated index) on reconnect.
+  }
+  console.log('[parent] Updated backup pool index for', deviceId, 'to', newIndex, '(TASK-061)');
 }
 
 // ---------------------------------------------------------------------------
@@ -1569,14 +1658,40 @@ function handleDataMessage(deviceId, msg) {
     }
 
     case MSG.ID_POOL: {
-      // TASK-061 — baby is sending its pre-agreed pool of backup peer IDs.
-      // Persist to the device profile so the parent can use them for reconnection.
+      // TASK-061 — baby is sending its pre-agreed backup ID pool.
+      // Payload: { pool: string[], index: number }
+      //   pool  — full array of backup PeerJS peer IDs
+      //   index — current/last-used index within the pool
+      //
+      // Persist to the device profile (survives app restart) and update the
+      // in-memory entry so TASK-030's reconnect logic can access the pool
+      // immediately without re-reading localStorage.
+      //
+      // This message is also sent after every replenishment (when the pool
+      // falls below 5 unused IDs) so the parent always has an up-to-date copy.
+      const poolPayload = msg.value;
+      if (!poolPayload || !Array.isArray(poolPayload.pool)) break;
+
+      const { pool, index } = poolPayload;
+      const safeIndex = typeof index === 'number' ? index : 0;
+
+      // Update the in-memory entry immediately.
       if (entry) {
-        const profile = getDeviceProfile(deviceId);
-        if (profile) {
-          saveDeviceProfile({ ...profile, backupPoolJson: JSON.stringify(msg.value ?? []) });
-        }
+        entry.backupPool      = pool;
+        entry.backupPoolIndex = safeIndex;
       }
+
+      // Persist to the device profile so the pool survives a page reload or
+      // app restart (TASK-030 needs it for reconnection even after full restart).
+      const profile = getDeviceProfile(deviceId);
+      if (profile) {
+        saveDeviceProfile({ ...profile, backupPoolJson: JSON.stringify({ pool, index: safeIndex }) });
+      }
+
+      console.log(
+        '[parent] Received backup ID pool from baby', deviceId,
+        '— pool length', pool.length, ', index', safeIndex, '(TASK-061)',
+      );
       break;
     }
 
