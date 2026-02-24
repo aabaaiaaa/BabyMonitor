@@ -169,6 +169,15 @@
       Triple-tap to unlock
     </div>
 
+    <!-- Speak-through indicator (TASK-012): shown when parent microphone is active -->
+    <div id="speak-through-indicator" class="speak-through-indicator hidden"
+         role="status" aria-live="assertive" aria-label="Parent is speaking">
+      🎤 Parent speaking
+    </div>
+
+    <!-- Hidden audio element receives the parent's speak-through stream (TASK-012) -->
+    <audio id="speak-through-audio" autoplay playsinline aria-hidden="true"></audio>
+
     <!-- Unlocked settings overlay: accessible after triple-tap (TASK-039) -->
     <div id="baby-settings-overlay" class="baby-settings-overlay hidden" role="dialog"
          aria-modal="true" aria-label="Baby monitor settings">

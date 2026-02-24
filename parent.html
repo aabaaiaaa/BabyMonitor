@@ -378,7 +378,28 @@
     <div class="settings-screen__inner">
       <button class="back-btn" id="settings-back" aria-label="Back">← Back</button>
       <h2>Settings</h2>
-      <p class="placeholder-text">Settings will be available in a future update.</p>
+
+      <!-- Speak-through mode (TASK-012) -->
+      <section class="settings-group" aria-labelledby="speak-mode-label">
+        <h3 id="speak-mode-label">Speak-Through Mode</h3>
+        <p class="settings-group__desc">Choose how the speak-through microphone button works.</p>
+        <div class="radio-group" role="radiogroup" aria-labelledby="speak-mode-label">
+          <label class="radio-row">
+            <input type="radio" name="speak-mode" id="speak-mode-ptt" value="ptt" />
+            <span>
+              <strong>Push to Talk</strong>
+              <small class="settings-hint-inline">Hold the button to speak; release to stop</small>
+            </span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="speak-mode" id="speak-mode-toggle" value="toggle" />
+            <span>
+              <strong>Toggle</strong>
+              <small class="settings-hint-inline">Tap once to start speaking; tap again to stop</small>
+            </span>
+          </label>
+        </div>
+      </section>
     </div>
   </section>
 

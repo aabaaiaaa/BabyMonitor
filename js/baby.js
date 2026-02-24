@@ -936,6 +936,7 @@ function startMonitor(conn) {
   sendStateSnapshot();     // TASK-048
   startSoothingMode(state.soothingMode);
   setupStatusFade();
+  _setupSpeakThrough(conn); // TASK-012
 }
 
 /** Update the connection status indicator. */
@@ -944,6 +945,65 @@ function updateConnectionStatus(connState) {
   babyConnStatus.className = 'status-badge';
   if (connState === 'connected')    babyConnStatus.classList.add('connected');
   if (connState === 'reconnecting') babyConnStatus.classList.add('reconnecting');
+}
+
+// ---------------------------------------------------------------------------
+// Speak-through receiver (TASK-012)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set up the speak-through audio receiver on the baby device.
+ *
+ * Listens for incoming audio tracks on the peer connection — these are added
+ * dynamically by the parent when the parent activates speak-through.  When a
+ * track arrives it is attached to the hidden <audio> element so the baby
+ * device's speakers play the parent's voice.
+ *
+ * Echo cancellation is applied on the parent side; no special handling is
+ * needed here beyond playing the stream.
+ *
+ * @param {object} conn — normalised connection object with .peerConnection
+ */
+function _setupSpeakThrough(conn) {
+  const pc = conn.peerConnection;
+  if (!pc) {
+    console.warn('[baby] No peerConnection for speak-through — skipping (TASK-012)');
+    return;
+  }
+
+  const speakAudio = /** @type {HTMLAudioElement|null} */ (
+    document.getElementById('speak-through-audio')
+  );
+  if (!speakAudio) return;
+
+  pc.addEventListener('track', (event) => {
+    // Only handle incoming audio tracks; ignore video tracks from the baby's
+    // own stream (which are outgoing and do not trigger this event anyway).
+    if (event.track.kind !== 'audio') return;
+
+    // Attach the incoming track to the audio element so it plays immediately.
+    // Each new speak session (after addTrack/removeTrack renegotiation) delivers
+    // a fresh track, so we replace srcObject each time.
+    const speakStream = new MediaStream([event.track]);
+    speakAudio.srcObject = speakStream;
+    speakAudio.play().catch(err => {
+      // Autoplay may be blocked before user interaction; the tap-to-begin
+      // overlay should have already satisfied the browser's interaction requirement.
+      console.warn('[baby] speak-through audio play() failed (TASK-012):', err);
+    });
+
+    console.log('[baby] Speak-through audio track received (TASK-012)');
+  });
+}
+
+/**
+ * Show or hide the "parent is speaking" visual indicator on the baby monitor.
+ * @param {boolean} visible
+ */
+function _showSpeakThroughIndicator(visible) {
+  const indicator = document.getElementById('speak-through-indicator');
+  if (!indicator) return;
+  indicator.classList.toggle('hidden', !visible);
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,11 +1537,14 @@ function handleDataMessage(msg) {
       break;
 
     case MSG.SPEAK_START:
-      // Play incoming parent audio in TASK-012
+      // Show the "parent is speaking" indicator (TASK-012).
+      // The audio plays automatically via the track event set up in _setupSpeakThrough.
+      _showSpeakThroughIndicator(true);
       break;
 
     case MSG.SPEAK_STOP:
-      // Stop parent audio in TASK-012
+      // Hide the "parent is speaking" indicator (TASK-012).
+      _showSpeakThroughIndicator(false);
       break;
 
     case MSG.FILE_META: {

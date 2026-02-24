@@ -106,6 +106,19 @@ const _lastTransferredFile = new Map();
 const FILE_CHUNK_SIZE = 16 * 1024;
 
 // ---------------------------------------------------------------------------
+// Speak-through state (TASK-012)
+// ---------------------------------------------------------------------------
+
+/** @type {MediaStream|null} Parent microphone capture stream for speak-through. */
+let _speakMicStream = null;
+
+/** @type {RTCRtpSender|null} The RTP sender added to the peer connection for the mic track. */
+let _speakMicSender = null;
+
+/** @type {boolean} True while speak-through microphone is actively transmitting. */
+let _speakActive = false;
+
+// ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
 
@@ -143,6 +156,7 @@ const btnSafeSleep        = document.getElementById('btn-safe-sleep');
 
 // Control panel buttons / inputs
 const cpSpeakBtn          = document.getElementById('cp-speak-btn');
+const cpSpeakHint         = document.querySelector('.speak-hint'); // TASK-012
 const cpVolume            = document.getElementById('cp-volume');
 const cpMonitorVolume     = document.getElementById('cp-monitor-volume'); // TASK-011
 const cpTrackSelect       = document.getElementById('cp-track-select');
@@ -938,6 +952,8 @@ function openControlPanel(deviceId) {
 }
 
 function closeControlPanel() {
+  // Stop speak-through if it is active when the panel is closed (TASK-012).
+  if (_speakActive) stopSpeakThrough();
   controlPanel?.classList.add('hidden');
   controlPanelDeviceId = null;
   stopScanner();
@@ -1051,19 +1067,155 @@ for (const btn of cpQualityBtns) {
   });
 }
 
-// Speak-through (push-to-talk default, TASK-012)
-cpSpeakBtn?.addEventListener('pointerdown', () => {
+// ---------------------------------------------------------------------------
+// Speak-through implementation (TASK-012)
+// Supports two modes (configurable in Settings):
+//   • push-to-talk (PTT): hold the button to transmit, release to stop (default)
+//   • toggle:             tap once to start, tap again to stop
+// ---------------------------------------------------------------------------
+
+/**
+ * Update the speak button label and hint text to reflect the current mode.
+ * Called once on init and whenever the speak mode setting changes.
+ */
+function updateSpeakBtnLabel() {
+  if (!cpSpeakBtn) return;
+  const isToggle = settings.speakMode === 'toggle';
+  if (isToggle) {
+    cpSpeakBtn.textContent = _speakActive ? '🎤 Tap to Stop' : '🎤 Tap to Speak';
+    cpSpeakBtn.setAttribute('aria-label', 'Tap to toggle speak-through microphone');
+  } else {
+    cpSpeakBtn.textContent = _speakActive ? '🎤 Speaking…' : '🎤 Hold to Speak';
+    cpSpeakBtn.setAttribute('aria-label', 'Hold to speak to baby');
+  }
+  if (cpSpeakHint) {
+    cpSpeakHint.textContent = isToggle
+      ? 'Tap once to start speaking; tap again to stop.'
+      : 'Hold down to speak; release to stop. Baby device will play your voice.';
+  }
+}
+
+/**
+ * Start the speak-through microphone capture and add the audio track to the
+ * active peer connection so the baby device hears the parent's voice (TASK-012).
+ *
+ * Captures the microphone with echo cancellation to suppress baby audio playing
+ * through the parent's speakers.
+ *
+ * @returns {Promise<void>}
+ */
+async function startSpeakThrough() {
+  if (_speakActive) return;
   const conn = getActiveConn();
-  if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SPEAK_START);
-  cpSpeakBtn.setAttribute('aria-pressed', 'true');
-  cpSpeakBtn.classList.add('active');
+  if (!conn) return;
+
+  try {
+    _speakMicStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation:  true,
+        noiseSuppression:  true,
+        autoGainControl:   true,
+      },
+    });
+
+    const micTrack = _speakMicStream.getAudioTracks()[0];
+
+    // Add the microphone track to the peer connection so it is transmitted to
+    // the baby device.  PeerJS handles the resulting renegotiation automatically.
+    if (conn.peerConnection) {
+      _speakMicSender = conn.peerConnection.addTrack(micTrack, _speakMicStream);
+    }
+
+    _speakActive = true;
+
+    // Notify baby device so it can show its own visual indicator.
+    if (conn.dataChannel) sendMessage(conn.dataChannel, MSG.SPEAK_START);
+
+    cpSpeakBtn?.classList.add('active');
+    cpSpeakBtn?.setAttribute('aria-pressed', 'true');
+    updateSpeakBtnLabel();
+    console.log('[parent] Speak-through started (TASK-012)');
+  } catch (err) {
+    // Microphone access denied or unavailable — clean up and inform the user.
+    _speakMicStream?.getTracks().forEach(t => t.stop());
+    _speakMicStream = null;
+    console.error('[parent] Microphone access failed (TASK-012):', err);
+
+    // Show a brief error on the button
+    if (cpSpeakBtn) {
+      const origText = cpSpeakBtn.textContent;
+      cpSpeakBtn.textContent = '⚠️ Mic unavailable';
+      setTimeout(() => {
+        updateSpeakBtnLabel();
+      }, 2500);
+    }
+  }
+}
+
+/**
+ * Stop the speak-through microphone and remove the track from the peer
+ * connection.  Sends SPEAK_STOP to the baby device (TASK-012).
+ */
+function stopSpeakThrough() {
+  if (!_speakActive) return;
+  const conn = getActiveConn();
+
+  // Remove the sender from the peer connection so the baby can no longer hear
+  // the parent's microphone.  PeerJS renegotiates automatically.
+  if (_speakMicSender && conn?.peerConnection) {
+    try {
+      conn.peerConnection.removeTrack(_speakMicSender);
+    } catch (err) {
+      console.warn('[parent] removeTrack failed (TASK-012):', err);
+    }
+    _speakMicSender = null;
+  }
+
+  // Stop the mic capture completely to release the microphone hardware.
+  _speakMicStream?.getTracks().forEach(t => t.stop());
+  _speakMicStream = null;
+
+  _speakActive = false;
+
+  // Notify baby device to hide its visual indicator.
+  if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SPEAK_STOP);
+
+  cpSpeakBtn?.classList.remove('active');
+  cpSpeakBtn?.setAttribute('aria-pressed', 'false');
+  updateSpeakBtnLabel();
+  console.log('[parent] Speak-through stopped (TASK-012)');
+}
+
+// Push-to-talk mode: start on pointerdown, stop on pointerup / pointerleave / pointercancel
+cpSpeakBtn?.addEventListener('pointerdown', (e) => {
+  if (settings.speakMode !== 'ptt') return;
+  e.preventDefault(); // Prevent context menu on long-press (mobile)
+  startSpeakThrough();
 });
 
 cpSpeakBtn?.addEventListener('pointerup', () => {
-  const conn = getActiveConn();
-  if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SPEAK_STOP);
-  cpSpeakBtn.setAttribute('aria-pressed', 'false');
-  cpSpeakBtn.classList.remove('active');
+  if (settings.speakMode !== 'ptt') return;
+  stopSpeakThrough();
+});
+
+cpSpeakBtn?.addEventListener('pointerleave', () => {
+  if (settings.speakMode !== 'ptt') return;
+  stopSpeakThrough();
+});
+
+cpSpeakBtn?.addEventListener('pointercancel', () => {
+  if (settings.speakMode !== 'ptt') return;
+  stopSpeakThrough();
+});
+
+// Toggle mode: tap once to start, tap again to stop
+cpSpeakBtn?.addEventListener('click', () => {
+  if (settings.speakMode !== 'toggle') return;
+  if (_speakActive) {
+    stopSpeakThrough();
+  } else {
+    startSpeakThrough();
+  }
 });
 
 // Camera flip
@@ -1548,12 +1700,50 @@ document.getElementById('safe-sleep-back')?.addEventListener('click', () => {
 btnDashboardSettings?.addEventListener('click', () => {
   parentDashboard?.classList.add('hidden');
   settingsScreen?.classList.remove('hidden');
+  _syncSettingsScreen(); // TASK-012: sync speak mode radio to current setting
 });
 
 document.getElementById('settings-back')?.addEventListener('click', () => {
   settingsScreen?.classList.add('hidden');
   parentDashboard?.classList.remove('hidden');
 });
+
+// ---------------------------------------------------------------------------
+// Settings screen — speak-through mode (TASK-012)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sync the speak mode radio buttons to the current settings value.
+ * Called each time the settings screen is opened.
+ */
+function _syncSettingsScreen() {
+  const pttRadio    = document.getElementById('speak-mode-ptt');
+  const toggleRadio = document.getElementById('speak-mode-toggle');
+  if (!pttRadio || !toggleRadio) return;
+  if (settings.speakMode === 'toggle') {
+    toggleRadio.checked = true;
+    pttRadio.checked    = false;
+  } else {
+    pttRadio.checked    = true;
+    toggleRadio.checked = false;
+  }
+}
+
+// Wire up speak mode radio buttons
+document.getElementById('speak-mode-ptt')?.addEventListener('change', () => {
+  settings.speakMode = 'ptt';
+  saveSetting(SETTING_KEYS.SPEAK_MODE, 'ptt');
+  updateSpeakBtnLabel();
+});
+
+document.getElementById('speak-mode-toggle')?.addEventListener('change', () => {
+  settings.speakMode = 'toggle';
+  saveSetting(SETTING_KEYS.SPEAK_MODE, 'toggle');
+  updateSpeakBtnLabel();
+});
+
+// Initialise speak button label on load (TASK-012)
+updateSpeakBtnLabel();
 
 // Pairing method buttons
 document.getElementById('method-peerjs')?.addEventListener('click', () => {
