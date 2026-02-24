@@ -36,7 +36,7 @@ import {
   parentListenPeerJs, getPeer,
   offlineParentReceiveOffer,
   sendMessage, MSG,
-  onPeerStatus, PEER_ERROR,
+  onPeerStatus, getPeerStatus, PEER_ERROR,
 } from './webrtc.js';
 import {
   renderQR, renderQRGrid,
@@ -399,6 +399,14 @@ function showPairing() {
   addParentSection?.classList.add('hidden');
   controlPanel?.classList.add('hidden');
   showPairingMethodStep();
+
+  // TASK-022: show the "Back to Dashboard" cancel button only when there are
+  // already connected monitors — the user may want to cancel adding a new one.
+  // When there are no monitors yet (first pairing) there is nowhere to go back.
+  const pairingCancelBtn = document.getElementById('pairing-cancel-btn');
+  if (pairingCancelBtn) {
+    pairingCancelBtn.classList.toggle('hidden', monitors.size === 0);
+  }
 }
 
 function showAddParent() {
@@ -451,9 +459,20 @@ async function startPeerJsPairing() {
 
   try {
     const peerjsServerConfig = lsGet(SETTING_KEYS.PEERJS_SERVER, null);
-    await initPeer(peerjsServerConfig);
 
-    if (peerjsScanStatus) peerjsScanStatus.textContent = 'Scan the QR code on the baby device.';
+    // TASK-022: Preserve existing monitor connections by reusing the active peer
+    // when one is already registered with the signalling server.  Calling
+    // initPeer() calls destroyPeerManager() internally, which would close the
+    // existing PeerJS Peer and disconnect every currently-connected baby monitor.
+    // Only initialise (and therefore destroy) the peer when there is no active
+    // peer yet (first pairing, or after an unexpected disconnection).
+    if (getPeerStatus() === 'ready') {
+      // Already registered — go straight to scanning; no server round-trip needed.
+      if (peerjsScanStatus) peerjsScanStatus.textContent = 'Scan the QR code on the baby device.';
+    } else {
+      await initPeer(peerjsServerConfig);
+      if (peerjsScanStatus) peerjsScanStatus.textContent = 'Scan the QR code on the baby device.';
+    }
 
     const babyPeerId = await scanSingle(peerjsScanVideo, {
       onProgress(msg) {
@@ -467,6 +486,8 @@ async function startPeerJsPairing() {
     // PeerJS pairing flow:
     // 1. We scanned the baby's QR code and have the baby's peer ID.
     // 2. We set up parentListenPeerJs() to receive the baby's incoming media call.
+    //    TASK-022: pass babyPeerId so the listener only processes events from this
+    //    specific baby, preventing handlers from earlier pairing sessions interfering.
     // 3. We open a data connection to the baby device, signalling that a parent
     //    is ready — this triggers the baby to call us back with its media stream.
     // 4. When the baby calls, parentListenPeerJs fires onReady with the connection.
@@ -488,7 +509,7 @@ async function startPeerJsPairing() {
         // After addMonitor() the entry is keyed by conn.deviceId which equals babyPeerId.
         handleDataMessage(babyPeerId, msg);
       },
-    });
+    }, babyPeerId); // TASK-022: filter events to this baby only
 
     // Open a data connection to the baby. The baby's peer.on('connection') handler
     // receives this, reads our peer ID, then calls us back with its media stream.
@@ -2094,6 +2115,18 @@ document.getElementById('btn-clear-peerjs')?.addEventListener('click', () => {
 
 // Initialise speak button label on load (TASK-012)
 updateSpeakBtnLabel();
+
+// TASK-022: "Back to Dashboard" cancel button shown during pairing when monitors
+// are already connected.  Stops any active scanner, cleans up the peer status
+// listener set up by startPeerJsPairing(), and returns to the dashboard.
+// Existing WebRTC connections are unaffected — they stay alive throughout the
+// pairing flow because we never close them in showPairing().
+document.getElementById('pairing-cancel-btn')?.addEventListener('click', () => {
+  stopScanner();
+  _peerStatusUnsub?.();
+  _peerStatusUnsub = null;
+  showDashboard();
+});
 
 // Pairing method buttons
 document.getElementById('method-peerjs')?.addEventListener('click', () => {

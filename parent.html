@@ -70,6 +70,12 @@
   <!-- Pairing / setup wizard (TASK-006): shown before any baby is connected -->
   <section id="pairing-section" class="pairing-section hidden" aria-label="Pairing">
     <div class="pairing-section__inner">
+      <!-- Back button: visible only when at least one monitor is already connected
+           (TASK-022). Lets the user cancel adding a new monitor and return to the
+           dashboard without dropping any existing connections. -->
+      <button class="back-btn hidden" id="pairing-cancel-btn" aria-label="Back to dashboard">
+        ← Back
+      </button>
       <h2 class="pairing-section__title">Connect to Baby Device</h2>
 
       <!-- Connection method selection -->

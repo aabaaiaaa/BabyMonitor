@@ -154,7 +154,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Design and implement the parent monitor dashboard. The layout should be responsive and work on both phones and tablets. Allocate the majority of the screen to a grid of baby monitor video panels. Reserve a sidebar or bottom panel for controls. When only one baby monitor is connected, its video should fill most of the screen. When multiple are connected, arrange them in a responsive grid. Each panel should show the baby's label, connection status, battery level, and a noise level indicator.
 
 ### TASK-022: Implement multi-monitor support on parent dashboard
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-021
 - **Description**: Allow the parent monitor to maintain simultaneous WebRTC connections to multiple baby monitor devices, up to a maximum of 4. Each connection is initiated via a separate QR code pairing session. The parent dashboard dynamically adds a new panel for each connected baby monitor. Implement connection management so each baby monitor has its own data channel and media stream. Provide a button to add a new baby monitor (initiating a new pairing session) without interrupting existing connections. When 4 baby monitors are already connected, disable the "Add baby monitor" button and show a tooltip explaining the limit. If a device disconnects, the slot becomes available again.

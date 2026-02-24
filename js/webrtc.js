@@ -200,12 +200,20 @@ export async function babyCallParent(parentPeerId, localStream, callbacks) {
 /**
  * Parent device: listen for incoming PeerJS calls and data connections.
  *
- * @param {object}   callbacks
+ * TASK-022 multi-monitor: when `expectedPeerId` is provided, only handle
+ * calls and data connections from that specific peer ID.  This prevents
+ * event handlers registered for one baby's pairing session from firing
+ * for a different baby that is already connected or is being paired
+ * concurrently.
+ *
+ * @param {object}        callbacks
  * @param {(conn: Connection) => void} callbacks.onReady
  * @param {(state: ConnState) => void} callbacks.onState
  * @param {(msg: object) => void}      callbacks.onMessage
+ * @param {string|null}   [expectedPeerId] — when set, only handle events
+ *                                           from this peer (TASK-022)
  */
-export function parentListenPeerJs(callbacks) {
+export function parentListenPeerJs(callbacks, expectedPeerId = null) {
   const peer = getPeerInstance();
   if (!peer) throw new Error('PeerJS peer not initialised');
 
@@ -240,6 +248,10 @@ export function parentListenPeerJs(callbacks) {
   }
 
   peer.on('call', (call) => {
+    // TASK-022: when pairing a specific baby, ignore calls from other peers so
+    // handlers registered for previous pairing sessions don't interfere.
+    if (expectedPeerId && call.peer !== expectedPeerId) return;
+
     // Accept the media call — no local stream needed on the parent side
     call.answer();
 
@@ -266,6 +278,9 @@ export function parentListenPeerJs(callbacks) {
   });
 
   peer.on('connection', (conn) => {
+    // TASK-022: only handle connections from the expected baby peer.
+    if (expectedPeerId && conn.peer !== expectedPeerId) return;
+
     dataConn = conn;
     onState?.('connecting');
 
