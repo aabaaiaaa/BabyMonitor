@@ -208,8 +208,11 @@
         <div class="track-select">
           <label for="cp-track-select">Track</label>
           <select id="cp-track-select" aria-label="Select music track">
-            <!-- Tracks populated dynamically -->
-            <option value="">Loading…</option>
+            <!-- Bundled tracks — audio files added by TASK-019 -->
+            <option value="">— None —</option>
+            <option value="white-noise">White Noise</option>
+            <option value="lullaby">Lullaby</option>
+            <option value="rain">Rain Sounds</option>
           </select>
         </div>
       </section>
@@ -280,6 +283,17 @@
           <span>Audio only mode</span>
           <input type="checkbox" id="cp-audio-only" role="switch" />
         </label>
+      </section>
+
+      <!-- Video / audio quality (TASK-025) -->
+      <section class="control-group" aria-labelledby="cp-quality-label">
+        <h3 id="cp-quality-label">Stream Quality</h3>
+        <div class="quality-btn-group" role="group" aria-label="Stream quality">
+          <button class="quality-btn" data-quality="low"    aria-pressed="false">Low</button>
+          <button class="quality-btn" data-quality="medium" aria-pressed="true">Medium</button>
+          <button class="quality-btn" data-quality="high"   aria-pressed="false">High</button>
+        </div>
+        <p class="quality-hint">Higher quality uses more battery and bandwidth.</p>
       </section>
 
       <!-- Noise threshold (TASK-024) -->

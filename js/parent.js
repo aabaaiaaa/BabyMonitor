@@ -69,6 +69,7 @@ const MAX_MONITORS = 4;
  * @property {number}        desiredGain   — TASK-011: last user-set gain (0–1); preserved across mute
  * @property {number}        noiseThreshold
  * @property {boolean}       audioMuted
+ * @property {object|null}   babyState     — TASK-025: last STATE_SNAPSHOT from baby device
  */
 
 /** @type {Map<string, MonitorEntry>} deviceId → monitor entry */
@@ -145,6 +146,7 @@ const cpVolume            = document.getElementById('cp-volume');
 const cpMonitorVolume     = document.getElementById('cp-monitor-volume'); // TASK-011
 const cpTrackSelect       = document.getElementById('cp-track-select');
 const cpTimerBtns         = controlPanel?.querySelectorAll('.timer-btn') ?? [];
+const cpQualityBtns       = controlPanel?.querySelectorAll('.quality-btn') ?? [];
 const cpTimerCountdown    = document.getElementById('cp-timer-countdown');
 const cpFlipCamera        = document.getElementById('cp-flip-camera');
 const cpAudioOnly         = document.getElementById('cp-audio-only');
@@ -579,6 +581,7 @@ function addMonitor(conn) {
     desiredGain:    initialGain, // preserved across mute/unmute (TASK-050)
     noiseThreshold: profile.noiseThreshold,
     audioMuted:     false,
+    babyState:      null, // TASK-025: last known baby state (updated by STATE_SNAPSHOT)
   };
 
   monitors.set(deviceId, entry);
@@ -707,11 +710,10 @@ function createMonitorPanel(deviceId, label, conn) {
     initBadge?.setAttribute('aria-label', 'Status: connecting');
   }
 
-  // Open control panel on click (excluding the controls button, which already does it)
-  panel.addEventListener('click', (e) => {
-    if (e.target.closest('.monitor-panel__controls-btn')) {
-      openControlPanel(deviceId);
-    }
+  // Open control panel by tapping/clicking anywhere on the panel (TASK-025).
+  // The controls button (⚙️) calls stopPropagation to prevent double-firing.
+  panel.addEventListener('click', () => {
+    openControlPanel(deviceId);
   });
   panel.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') openControlPanel(deviceId);
@@ -801,6 +803,10 @@ function openControlPanel(deviceId) {
   }
   entry.audioCtx?.resume().catch(() => {});
 
+  // Sync all TASK-025 controls to the baby's last known state (TASK-025).
+  // If no snapshot has arrived yet the panel still shows sensible defaults.
+  _syncControlPanelState(entry.babyState);
+
   // Restore file playback controls if a file was previously transferred to this device (TASK-013).
   const tf = _lastTransferredFile.get(deviceId);
   if (tf && cpFilePlayback) {
@@ -825,6 +831,35 @@ function closeControlPanel() {
   controlPanel?.classList.add('hidden');
   controlPanelDeviceId = null;
   stopScanner();
+}
+
+/**
+ * Sync all control-panel UI controls to a baby device state snapshot (TASK-025).
+ * Called when the panel opens (with the last cached state) and whenever a fresh
+ * STATE_SNAPSHOT arrives while the panel is open.
+ * @param {object} s — state snapshot sent by the baby device
+ */
+function _syncControlPanelState(s) {
+  if (!s) return;
+
+  // Soothing mode buttons
+  controlPanel?.querySelectorAll('.mode-btn').forEach(b =>
+    b.setAttribute('aria-pressed', b.dataset.mode === s.soothingMode ? 'true' : 'false')
+  );
+
+  // Music volume slider
+  if (cpVolume && s.musicVolume != null) cpVolume.value = String(s.musicVolume);
+
+  // Track selector — set to the current track (or '' if none)
+  if (cpTrackSelect) cpTrackSelect.value = s.currentTrack ?? '';
+
+  // Audio-only toggle
+  if (cpAudioOnly && s.audioOnly != null) cpAudioOnly.checked = Boolean(s.audioOnly);
+
+  // Quality buttons
+  cpQualityBtns.forEach(b =>
+    b.setAttribute('aria-pressed', b.dataset.quality === s.quality ? 'true' : 'false')
+  );
 }
 
 /** Get the connection for the currently open control panel. */
@@ -886,6 +921,19 @@ for (const btn of cpTimerBtns) {
     const conn = getActiveConn();
     if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_FADE_TIMER, duration * 60);
     cpTimerBtns.forEach(b => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+  });
+}
+
+// Quality buttons (TASK-025) — send SET_QUALITY to baby; baby applies and confirms via snapshot
+for (const btn of cpQualityBtns) {
+  btn.addEventListener('click', () => {
+    const quality = btn.dataset.quality;
+    const conn = getActiveConn();
+    if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_QUALITY, quality);
+    // Optimistically update aria-pressed; STATE_SNAPSHOT from baby will confirm.
+    cpQualityBtns.forEach(b =>
+      b.setAttribute('aria-pressed', b === btn ? 'true' : 'false')
+    );
   });
 }
 
@@ -1119,16 +1167,12 @@ function handleDataMessage(deviceId, msg) {
   switch (msg.type) {
 
     case MSG.STATE_SNAPSHOT: {
-      // Synchronise control panel with baby device state (TASK-048)
+      // Cache the baby's state for when the control panel is opened (TASK-025 / TASK-048).
       if (!entry) break;
-      const s = msg.value;
+      entry.babyState = msg.value;
+      // If the control panel is currently open for this device, live-sync its controls.
       if (controlPanelDeviceId === deviceId) {
-        // Update mode buttons
-        controlPanel?.querySelectorAll('.mode-btn').forEach(b =>
-          b.setAttribute('aria-pressed', b.dataset.mode === s.soothingMode ? 'true' : 'false')
-        );
-        if (cpVolume)      cpVolume.value     = String(s.musicVolume ?? 70);
-        if (cpAudioOnly)   cpAudioOnly.checked = Boolean(s.audioOnly);
+        _syncControlPanelState(msg.value);
       }
       break;
     }

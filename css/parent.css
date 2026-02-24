@@ -676,6 +676,65 @@
 }
 
 /* --------------------------------------------------------------------------
+   Quality selector (TASK-025)
+   -------------------------------------------------------------------------- */
+.quality-btn-group {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.quality-btn {
+  flex: 1;
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 2px solid var(--color-border);
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+              color var(--transition-fast);
+}
+
+.quality-btn[aria-pressed="true"],
+.quality-btn.active {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  border-color: var(--color-primary);
+}
+
+.quality-hint {
+  margin-top: var(--space-sm);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+   Toggle row (audio-only, etc.)
+   -------------------------------------------------------------------------- */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  min-height: var(--touch-target);
+}
+
+.toggle-row input[type="checkbox"] {
+  width: 2.5rem;
+  height: 1.4rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: var(--color-primary);
+}
+
+/* --------------------------------------------------------------------------
    Noise threshold slider label
    -------------------------------------------------------------------------- */
 .control-group input[type="range"] {

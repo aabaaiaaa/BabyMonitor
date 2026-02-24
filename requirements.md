@@ -172,7 +172,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: For each connected baby monitor, attach a Web Audio API `AnalyserNode` to the incoming audio stream. Compute the RMS amplitude in real time and render a compact noise-level bar or waveform indicator within the baby's panel on the parent dashboard. The visualiser should update at ~10 fps to remain lightweight. Add a threshold line the parent can adjust per device; if noise exceeds the threshold, the panel should highlight visually (e.g. pulsing border) as an alert. The per-device threshold value is stored in that device's profile in `localStorage` (see TASK-032) so it persists across sessions. This lets parents monitor audio activity without having to watch the video.
 
 ### TASK-025: Implement remote control panel on parent dashboard
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-009, TASK-015
 - **Description**: In the parent dashboard, provide a control panel for each connected baby monitor (accessible by tapping/clicking the baby's panel or via a slide-out drawer). Controls include: soothing mode selector (candle / water / stars / music / off), volume slider for locally played soothing music on the baby device, music track selector (choosing from the baby device's bundled tracks), music fade-out timer setting, and video/audio quality settings. All control changes send a command via the data channel. The baby device applies the command and confirms via a response message.
