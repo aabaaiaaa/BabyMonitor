@@ -26,7 +26,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Add a `manifest.json` so the app is installable as a PWA. Implement a Service Worker that pre-caches all app assets (HTML, CSS, JS, fonts, audio files) on first load so the app is fully usable offline. Use a cache-first strategy. The app must function with no internet connection once the initial assets are cached. Third-party libraries may be loaded from CDNs; the Service Worker must intercept and cache those CDN responses on first load so that subsequent use (including offline use after the initial visit) does not require internet access. All CDN origins used must be listed in the cache manifest. Test that loading the page on a device with no internet access works after first visit.
 
 ### TASK-003: Implement Wake Lock API to prevent device sleep
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-001
 - **Description**: Use the Screen Wake Lock API (`navigator.wakeLock.request('screen')`) to prevent the baby monitor device and parent monitor device from going to sleep while the app is in use. Request the wake lock when a mode is entered and release it when the user navigates away. Re-acquire the lock automatically if it is released by the system (e.g. tab becomes visible again). Fall back gracefully on browsers that do not support the API.
