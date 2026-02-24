@@ -423,6 +423,41 @@
   background: var(--color-danger);
 }
 
+/* Movement indicator badge (TASK-026) */
+.motion-indicator {
+  font-size: 1rem;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  flex-shrink: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.motion-indicator--active {
+  opacity: 1;
+  animation: motion-indicator-pulse 1s ease-in-out infinite;
+}
+
+@keyframes motion-indicator-pulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.2); }
+}
+
+/* Panel alert border for motion events (TASK-026) */
+.monitor-panel--motion-alert {
+  border-color: #3b82f6;
+  animation: panel-motion-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes panel-motion-pulse {
+  0%, 100% { box-shadow: var(--shadow-sm); }
+  50%       { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.35), var(--shadow-md); }
+}
+
+.dark-mode .monitor-panel--motion-alert {
+  border-color: #93c5fd;
+}
+
 /* Panel controls button */
 .monitor-panel__controls-btn {
   min-width: var(--touch-target);

@@ -381,6 +381,14 @@
                aria-label="Noise alert sensitivity" />
       </section>
 
+      <!-- Motion sensitivity (TASK-026) -->
+      <section class="control-group" aria-labelledby="cp-motion-label">
+        <h3 id="cp-motion-label">Movement Sensitivity</h3>
+        <input type="range" id="cp-motion-threshold" min="0" max="100" value="50"
+               aria-label="Movement detection sensitivity" />
+        <p class="settings-hint">Lower value = more sensitive. A 🚶 indicator appears on the panel when movement is detected.</p>
+      </section>
+
       <!-- Disconnect -->
       <section class="control-group">
         <button id="cp-disconnect" class="action-btn action-btn--danger">Disconnect Baby Monitor</button>

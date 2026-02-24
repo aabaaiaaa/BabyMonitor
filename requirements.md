@@ -178,7 +178,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: In the parent dashboard, provide a control panel for each connected baby monitor (accessible by tapping/clicking the baby's panel or via a slide-out drawer). Controls include: soothing mode selector (candle / water / stars / music / off), volume slider for locally played soothing music on the baby device, music track selector (choosing from the baby device's bundled tracks), music fade-out timer setting, and video/audio quality settings. All control changes send a command via the data channel. The baby device applies the command and confirms via a response message.
 
 ### TASK-026: Implement movement detection on baby video stream
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-011
 - **Description**: On the parent monitor, implement frame-differencing motion detection on the incoming baby video stream. Draw each video frame to an offscreen `<canvas>`, compare pixel values to the previous frame, and compute a motion score. Throttle the analysis to run every 2–3 seconds to reduce CPU and battery load. Display a movement indicator on the baby's panel. If movement exceeds a configurable threshold, trigger a visual alert (e.g. panel border flashes, optional on-screen notification). Provide a sensitivity slider in the panel settings.

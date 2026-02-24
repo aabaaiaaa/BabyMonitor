@@ -68,6 +68,9 @@ const MAX_MONITORS = 4;
  * @property {AnalyserNode}    analyserNode    — TASK-024 hookup: noise visualiser
  * @property {number}          desiredGain     — TASK-011: last user-set gain (0–1); preserved across mute
  * @property {number}          noiseThreshold
+ * @property {number}          motionThreshold  — TASK-026: movement detection sensitivity (0–100)
+ * @property {number|null}     motionTimerId    — TASK-026: setInterval ID for motion detection loop
+ * @property {ImageData|null}  motionPrevFrame  — TASK-026: previous video frame pixel data for diff
  * @property {boolean}         audioMuted
  * @property {object|null}     babyState       — TASK-025: last STATE_SNAPSHOT from baby device
  * @property {boolean}         powerSaverMode  — TASK-028: reduced analysis frequency on this monitor
@@ -177,6 +180,7 @@ const cpTimerCustomSet    = document.getElementById('cp-timer-custom-set');   //
 const cpFlipCamera        = document.getElementById('cp-flip-camera');
 const cpAudioOnly         = document.getElementById('cp-audio-only');
 const cpNoiseThreshold    = document.getElementById('cp-noise-threshold');
+const cpMotionThreshold   = document.getElementById('cp-motion-threshold'); // TASK-026
 const cpAudioFile         = document.getElementById('cp-audio-file');
 const cpSendAudio         = document.getElementById('cp-send-audio');
 const cpTransferProgress  = document.getElementById('cp-transfer-progress');
@@ -757,6 +761,9 @@ function addMonitor(conn) {
     analyserNode:     analyser,
     desiredGain:      initialGain, // preserved across mute/unmute (TASK-050)
     noiseThreshold:   profile.noiseThreshold,
+    motionThreshold:  profile.motionThreshold ?? 50, // TASK-026: motion sensitivity
+    motionTimerId:    null,  // TASK-026: setInterval ID; cleared on disconnect
+    motionPrevFrame:  null,  // TASK-026: previous frame ImageData for differencing
     audioMuted:       false,
     babyState:        null, // TASK-025: last known baby state (updated by STATE_SNAPSHOT)
     powerSaverMode:   false, // TASK-028: reduced analysis frequency
@@ -770,6 +777,9 @@ function addMonitor(conn) {
 
   // Start noise visualiser (TASK-024)
   startNoiseVisualiser(entry);
+
+  // Start motion detection (TASK-026)
+  startMotionDetection(entry);
 
   // E2E test hooks (TASK-063): expose connection state and last connection for assertions.
   window.__peerState = 'connected';
@@ -802,6 +812,9 @@ function removeMonitor(deviceId) {
 
   // Stop media tracks
   entry.mediaStream?.getTracks().forEach(t => t.stop());
+
+  // Stop motion detection (TASK-026): clear interval and reset state.
+  stopMotionDetection(entry);
 
   // Disconnect Web Audio nodes (TASK-011: disconnect in source→gain→analyser order)
   try {
@@ -941,6 +954,8 @@ function createMonitorPanel(deviceId, label, conn) {
       <div class="noise-bar-wrap" title="Noise level" aria-label="Noise level">
         <div class="noise-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
       </div>
+      <span class="motion-indicator" title="Movement detected" aria-label="Movement detected" aria-hidden="true"
+            data-level="0">🚶</span>
       <button class="monitor-panel__controls-btn" aria-label="Open controls for ${escapeHtml(label)}"
               title="Controls">⚙️</button>
     </div>
@@ -1039,6 +1054,137 @@ function startNoiseVisualiser(entry) {
 }
 
 // ---------------------------------------------------------------------------
+// Motion detection (TASK-026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Start frame-differencing motion detection for a monitor entry.
+ *
+ * Architecture:
+ *  - An offscreen <canvas> (160×120) is used to draw downscaled video frames.
+ *  - Every MOTION_INTERVAL ms the current frame is captured via drawImage(),
+ *    its greyscale pixel data compared to the previous frame, and a motion
+ *    score (0–100) computed from the mean absolute per-pixel difference.
+ *  - The score drives a visual indicator badge on the panel and triggers
+ *    showMovementAlert() when the score exceeds entry.motionThreshold.
+ *  - In power-saver mode the interval is tripled to reduce CPU load.
+ *
+ * @param {MonitorEntry} entry
+ */
+function startMotionDetection(entry) {
+  const panel = entry.panelEl;
+  if (!panel) return;
+
+  const videoEl = panel.querySelector('.monitor-panel__video');
+  const motionIndicator = panel.querySelector('.motion-indicator');
+  if (!videoEl || !motionIndicator) return;
+
+  // Offscreen canvas at a low resolution — enough for frame differencing but
+  // cheap to compute.  160×120 gives 19,200 pixels per frame.
+  const CANVAS_W = 160;
+  const CANVAS_H = 120;
+  const MOTION_INTERVAL_NORMAL = 2500; // ms between samples
+  const MOTION_INTERVAL_SAVER  = 6000; // ms in power-saver mode
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = CANVAS_W;
+  canvas.height = CANVAS_H;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+
+  // Cooldown: prevent the same device from spamming repeated alerts within a
+  // short window.  Reset after ALERT_COOLDOWN_MS.
+  const ALERT_COOLDOWN_MS = 10_000;
+  let lastAlertTime = 0;
+
+  function sample() {
+    if (!monitors.has(entry.deviceId)) return; // monitor removed — loop already stopped
+
+    // Skip analysis if the video has no real data yet.
+    if (videoEl.readyState < 2 || videoEl.videoWidth === 0) return;
+
+    try {
+      ctx.drawImage(videoEl, 0, 0, CANVAS_W, CANVAS_H);
+    } catch {
+      // drawImage can throw if the video element is in an invalid state.
+      return;
+    }
+
+    const imageData = ctx.getImageData(0, 0, CANVAS_W, CANVAS_H);
+    const pixels    = imageData.data; // Uint8ClampedArray: [R,G,B,A, R,G,B,A, …]
+    const numPixels = CANVAS_W * CANVAS_H;
+
+    if (entry.motionPrevFrame) {
+      const prev = entry.motionPrevFrame.data;
+      let totalDiff = 0;
+
+      // Compute mean absolute grey-level difference across all pixels.
+      // Using (R+G+B)/3 as a cheap greyscale approximation.
+      for (let i = 0; i < pixels.length; i += 4) {
+        const currGrey = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+        const prevGrey = (prev[i]   + prev[i + 1]   + prev[i + 2])   / 3;
+        totalDiff += Math.abs(currGrey - prevGrey);
+      }
+
+      const avgDiff    = totalDiff / numPixels; // 0–255
+      // Map to 0–100 scale; a mean difference of ~25/255 scores 100.
+      const motionScore = Math.min(100, Math.round((avgDiff / 25) * 100));
+
+      // Update the motion indicator badge visibility and level attribute.
+      motionIndicator.setAttribute('data-level', String(motionScore));
+      const aboveThreshold = motionScore > entry.motionThreshold;
+      motionIndicator.classList.toggle('motion-indicator--active', aboveThreshold);
+      panel.classList.toggle('monitor-panel--motion-alert', aboveThreshold);
+
+      // Trigger alert (with cooldown to avoid repeated banners).
+      if (aboveThreshold) {
+        const now = Date.now();
+        if (now - lastAlertTime > ALERT_COOLDOWN_MS) {
+          lastAlertTime = now;
+          showMovementAlert(entry.deviceId, entry.label);
+        }
+      }
+    }
+
+    // Store current frame for the next comparison.
+    entry.motionPrevFrame = imageData;
+  }
+
+  // Schedule the recurring sample.  Store the ID so removeMonitor() can stop it.
+  const interval = entry.powerSaverMode ? MOTION_INTERVAL_SAVER : MOTION_INTERVAL_NORMAL;
+  entry.motionTimerId = setInterval(sample, interval);
+
+  // When power-saver mode changes the interval must be recreated; that happens
+  // in the cpPowerSaver change listener which calls restartMotionDetection().
+}
+
+/**
+ * Stop the motion detection loop for an entry and clear its state.
+ * @param {MonitorEntry} entry
+ */
+function stopMotionDetection(entry) {
+  if (entry.motionTimerId !== null) {
+    clearInterval(entry.motionTimerId);
+    entry.motionTimerId   = null;
+    entry.motionPrevFrame = null;
+  }
+  // Clear the visual indicator
+  const motionIndicator = entry.panelEl?.querySelector('.motion-indicator');
+  motionIndicator?.classList.remove('motion-indicator--active');
+  entry.panelEl?.classList.remove('monitor-panel--motion-alert');
+}
+
+/**
+ * Restart motion detection with the current interval setting (e.g. after
+ * toggling power-saver mode).
+ * @param {MonitorEntry} entry
+ */
+function restartMotionDetection(entry) {
+  stopMotionDetection(entry);
+  startMotionDetection(entry);
+}
+
+// ---------------------------------------------------------------------------
 // Control panel (TASK-025)
 // ---------------------------------------------------------------------------
 
@@ -1055,6 +1201,9 @@ function openControlPanel(deviceId) {
 
   // Populate noise threshold from profile
   if (cpNoiseThreshold) cpNoiseThreshold.value = String(entry.noiseThreshold);
+
+  // Populate motion threshold from profile (TASK-026)
+  if (cpMotionThreshold) cpMotionThreshold.value = String(entry.motionThreshold);
 
   // Sync monitor volume slider to this entry's current desired gain (TASK-011).
   // Opening the control panel is always in response to a user gesture, so
@@ -1622,12 +1771,15 @@ cpScreenDim?.addEventListener('change', () => {
 
 // TASK-028: Power-saver mode toggle — reduces noise analysis frequency on the
 // parent device from ~10 fps to ~2 fps.  Saves CPU and battery on the parent.
+// TASK-026: Also restarts motion detection with the updated interval.
 cpPowerSaver?.addEventListener('change', () => {
   if (!controlPanelDeviceId) return;
   const entry = monitors.get(controlPanelDeviceId);
   if (entry) {
     entry.powerSaverMode = cpPowerSaver.checked;
     console.log(`[parent] Power-saver mode ${entry.powerSaverMode ? 'on' : 'off'} for ${entry.label}`);
+    // Restart motion detection to pick up the new interval (TASK-026).
+    restartMotionDetection(entry);
   }
 });
 
@@ -1639,6 +1791,17 @@ cpNoiseThreshold?.addEventListener('change', () => {
     entry.noiseThreshold = Number(cpNoiseThreshold.value);
     const profile = getDeviceProfile(controlPanelDeviceId);
     if (profile) saveDeviceProfile({ ...profile, noiseThreshold: entry.noiseThreshold });
+  }
+});
+
+// Motion sensitivity threshold (TASK-026)
+cpMotionThreshold?.addEventListener('change', () => {
+  if (!controlPanelDeviceId) return;
+  const entry = monitors.get(controlPanelDeviceId);
+  if (entry) {
+    entry.motionThreshold = Number(cpMotionThreshold.value);
+    const profile = getDeviceProfile(controlPanelDeviceId);
+    if (profile) saveDeviceProfile({ ...profile, motionThreshold: entry.motionThreshold });
   }
 });
 
