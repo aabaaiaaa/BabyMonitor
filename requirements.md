@@ -148,7 +148,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Use the Battery Status API (`navigator.getBattery()`) on the baby monitor device to read the current battery level and charging state. Broadcast this information to the parent via the data channel as a periodic status update (e.g. every 60 seconds or when the level changes by more than 2%). Handle the case where the Battery Status API is not available (show "unknown" on the parent side). The baby monitor should also display a low-battery warning locally when the level drops below 20%.
 
 ### TASK-021: Build parent monitor main dashboard layout
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-011
 - **Description**: Design and implement the parent monitor dashboard. The layout should be responsive and work on both phones and tablets. Allocate the majority of the screen to a grid of baby monitor video panels. Reserve a sidebar or bottom panel for controls. When only one baby monitor is connected, its video should fill most of the screen. When multiple are connected, arrange them in a responsive grid. Each panel should show the baby's label, connection status, battery level, and a noise level indicator.

@@ -693,6 +693,20 @@ function createMonitorPanel(deviceId, label, conn) {
     videoEl.srcObject = conn.mediaStream;
   }
 
+  // Set initial connection status (TASK-021):
+  // Show the "Connecting…" overlay if no stream is available yet; once a stream is
+  // present the badge is considered connected and the overlay stays hidden.
+  const initBadge   = panel.querySelector('.status-badge');
+  const initOverlay = panel.querySelector('.monitor-panel__conn-overlay');
+  if (conn.mediaStream) {
+    if (initBadge)   initBadge.classList.add('connected');
+    initBadge?.setAttribute('aria-label', 'Status: connected');
+  } else {
+    // No stream yet — display the overlay so the user sees a connecting state
+    if (initOverlay) initOverlay.classList.remove('hidden');
+    initBadge?.setAttribute('aria-label', 'Status: connecting');
+  }
+
   // Open control panel on click (excluding the controls button, which already does it)
   panel.addEventListener('click', (e) => {
     if (e.target.closest('.monitor-panel__controls-btn')) {
@@ -1154,13 +1168,30 @@ function handleDataMessage(deviceId, msg) {
 
     case MSG.CONN_STATUS: {
       // Baby is reporting its own connection state (e.g. 'reconnecting').
-      // Update the status badge on the monitor panel so the parent can see it.
+      // Update the status badge and the connection overlay on the monitor panel.
       if (!entry) break;
-      const statusBadge = entry.panelEl?.querySelector('.status-badge');
+      const statusBadge   = entry.panelEl?.querySelector('.status-badge');
+      const connOverlay   = entry.panelEl?.querySelector('.monitor-panel__conn-overlay');
+      const overlaySpan   = connOverlay?.querySelector('span');
+
       if (statusBadge) {
         statusBadge.className = 'status-badge';
         if (msg.value === 'connected')    statusBadge.classList.add('connected');
         if (msg.value === 'reconnecting') statusBadge.classList.add('reconnecting');
+        statusBadge.setAttribute('aria-label', `Status: ${msg.value}`);
+      }
+
+      // TASK-021: show/hide the video overlay based on connection state.
+      if (connOverlay) {
+        if (msg.value === 'connected') {
+          connOverlay.classList.add('hidden');
+        } else if (msg.value === 'reconnecting') {
+          if (overlaySpan) overlaySpan.textContent = 'Reconnecting…';
+          connOverlay.classList.remove('hidden');
+        } else if (msg.value === 'disconnected') {
+          if (overlaySpan) overlaySpan.textContent = 'Disconnected';
+          connOverlay.classList.remove('hidden');
+        }
       }
       break;
     }

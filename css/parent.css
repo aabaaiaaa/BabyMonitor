@@ -136,7 +136,8 @@
 .parent-dashboard {
   display: grid;
   grid-template-rows: auto auto 1fr;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* --------------------------------------------------------------------------
@@ -248,12 +249,23 @@
   grid-template-columns: repeat(2, 1fr);
 }
 
-/* Single monitor: give it more room */
+/* Single monitor: fill the full height of the available dashboard area */
+.monitor-grid[data-count="1"] {
+  align-content: stretch;
+  grid-template-rows: 1fr;
+}
+
+/* Single monitor: centre and constrain width while filling height */
 .monitor-grid[data-count="1"] .monitor-panel {
   max-width: 720px;
   margin: 0 auto;
   width: 100%;
   grid-column: 1 / -1;
+}
+
+/* Single monitor: remove the fixed aspect-ratio so the video expands to fill height */
+.monitor-grid[data-count="1"] .monitor-panel__video-wrap {
+  aspect-ratio: unset;
 }
 
 .monitor-grid__empty {
