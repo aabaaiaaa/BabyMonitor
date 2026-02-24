@@ -118,6 +118,13 @@ let _speakMicSender = null;
 /** @type {boolean} True while speak-through microphone is actively transmitting. */
 let _speakActive = false;
 
+/**
+ * Device ID of the monitor whose gain was ramped down for speak-through ducking
+ * (TASK-056).  Null when no ducking is active.
+ * @type {string|null}
+ */
+let _speakDeviceId = null;
+
 // ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
@@ -637,11 +644,13 @@ function addMonitor(conn) {
   saveDeviceProfile(profile);
 
   // -------------------------------------------------------------------------
-  // Set up Web Audio graph (TASK-011)
+  // Set up Web Audio graph (TASK-011 / TASK-056)
   // Architecture:  MediaStreamSourceNode (audio track only)
   //                   → GainNode    (TASK-011 volume / TASK-056 smooth-ramp hookup)
-  //                   → AnalyserNode (TASK-024 noise-visualiser hookup)
   //                   → AudioContext.destination
+  //                   → AnalyserNode (TASK-024 noise-visualiser hookup — reads
+  //                                   PRE-GAIN signal so visualiser stays active
+  //                                   during speak-through ducking; no destination)
   //
   // The video element (created in createMonitorPanel) has the `muted` attribute
   // set so it never plays audio — all audio flows through this graph.
@@ -657,13 +666,16 @@ function addMonitor(conn) {
   const gainNode = audioCtx.createGain();
   gainNode.gain.value = initialGain;
 
-  // AnalyserNode — TASK-024 hookup point (noise visualiser reads from this).
+  // AnalyserNode — TASK-024 / TASK-056 hookup point.
+  // Connected directly to the source (pre-gain) so that noise visualiser data
+  // remains available even when gain is ramped to 0 during speak-through
+  // ducking.  The analyser is NOT connected to the destination — it is a
+  // branch used only for analysis.
   const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 256;
 
-  // Wire: gain → analyser → speakers
-  gainNode.connect(analyser);
-  analyser.connect(audioCtx.destination);
+  // Wire playback path: gain → speakers
+  gainNode.connect(audioCtx.destination);
 
   // Create the MediaStreamSourceNode from the audio track(s) only.
   // The full stream (including video) is attached to the <video> element
@@ -674,7 +686,10 @@ function addMonitor(conn) {
     if (audioTracks.length > 0) {
       const audioOnlyStream = new MediaStream(audioTracks);
       sourceNode = audioCtx.createMediaStreamSource(audioOnlyStream);
+      // Playback branch: source → gain → destination
       sourceNode.connect(gainNode);
+      // Analysis branch (TASK-056): source → analyser (pre-gain, always active)
+      sourceNode.connect(analyser);
     }
   }
 
@@ -1128,6 +1143,16 @@ async function startSpeakThrough() {
 
     _speakActive = true;
 
+    // TASK-056: duck the incoming baby audio to prevent speaker feedback.
+    // Ramp down to silent over 200 ms; the AnalyserNode (pre-gain branch) keeps
+    // feeding the noise visualiser throughout so the parent can still see activity.
+    const duckDeviceId = controlPanelDeviceId;
+    if (duckDeviceId && monitors.has(duckDeviceId)) {
+      _speakDeviceId = duckDeviceId;
+      setMonitorGain(duckDeviceId, 0, 200);
+      console.log(`[parent] Speak-through ducking: muting baby audio for ${duckDeviceId} (TASK-056)`);
+    }
+
     // Notify baby device so it can show its own visual indicator.
     if (conn.dataChannel) sendMessage(conn.dataChannel, MSG.SPEAK_START);
 
@@ -1176,6 +1201,18 @@ function stopSpeakThrough() {
   _speakMicStream = null;
 
   _speakActive = false;
+
+  // TASK-056: restore the baby audio that was ducked when speak-through started.
+  // Ramp back up to the user's desired gain over 500 ms.  Skip if the user has
+  // explicitly muted that monitor via the volume control.
+  if (_speakDeviceId) {
+    const duckEntry = monitors.get(_speakDeviceId);
+    if (duckEntry && !duckEntry.audioMuted) {
+      setMonitorGain(_speakDeviceId, duckEntry.desiredGain, 500);
+      console.log(`[parent] Speak-through ducking: restoring baby audio for ${_speakDeviceId} (TASK-056)`);
+    }
+    _speakDeviceId = null;
+  }
 
   // Notify baby device to hide its visual indicator.
   if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SPEAK_STOP);
