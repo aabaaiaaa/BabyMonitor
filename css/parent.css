@@ -662,3 +662,110 @@
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* --------------------------------------------------------------------------
+   Notification permission screen (TASK-047)
+   Full-screen explanation shown before the browser permission prompt fires.
+   Displayed on first use only; skipped on subsequent visits.
+   -------------------------------------------------------------------------- */
+
+.notif-screen {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: max(var(--space-xl), env(safe-area-inset-top))
+           var(--space-lg)
+           max(var(--space-xl), env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+.notif-screen__inner {
+  width: 100%;
+  max-width: 480px;
+}
+
+.notif-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-md);
+}
+
+.notif-content__icon {
+  font-size: 3rem;
+  line-height: 1;
+  margin-bottom: var(--space-sm);
+}
+
+.notif-content__title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.notif-content__desc {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  max-width: 38ch;
+}
+
+.notif-content__ios-note {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-align: left;
+  line-height: 1.5;
+  width: 100%;
+}
+
+.notif-content__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  margin-top: var(--space-sm);
+}
+
+.notif-content__enable-btn {
+  width: 100%;
+  max-width: 320px;
+}
+
+.notif-content__skip-btn {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-md);
+}
+
+.notif-content__denied {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+.notif-content__denied-msg {
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.notif-content__denied-hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  max-width: 38ch;
+}

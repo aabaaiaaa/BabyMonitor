@@ -31,6 +31,18 @@ browser-incompatibility warning. However, it is important to note:
   to work without a wake lock, and the device may dim or sleep after the system
   idle timeout.
 
+- **Background notifications not available on iOS**: Apple's OS does not permit
+  web apps to deliver push or background notifications on iPhone and iPad,
+  regardless of which browser is used. This is an OS-level restriction that
+  affects all web apps on iOS (including Chrome on iOS). Granting notification
+  permission in the browser has no effect when the app is in the background or
+  the screen is off.
+
+  On iOS, the notification permission screen clearly explains this limitation:
+  notifications will only appear while the app is actively open in the browser.
+  Users who need background monitoring alerts on an iOS device should keep the
+  browser open with the screen on (or use a non-iOS device as the parent monitor).
+
 - **Other APIs**: WebRTC and `getUserMedia` are available on iOS 14.3+ for all
   browsers. The QR-based offline pairing (TASK-004 / TASK-005) and PeerJS
   quick-pair (TASK-006) flows have been designed to work within these constraints.

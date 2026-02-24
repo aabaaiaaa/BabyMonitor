@@ -42,6 +42,7 @@ import {
   scanSingle, scanMulti, scanAuto, stopScanner,
 } from './qr.js';
 import { showCompatWarnings } from './browser-compat.js';
+import { showNotificationPermissionScreen } from './notifications.js';
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -92,6 +93,7 @@ const controlPanelTitle   = document.getElementById('control-panel-title');
 const controlPanelClose   = document.getElementById('control-panel-close');
 const safeSlotScreen      = document.getElementById('safe-sleep-screen');
 const settingsScreen      = document.getElementById('settings-screen');
+const notifScreen         = document.getElementById('notif-screen');
 
 // Pairing elements
 const pairingMethodStep   = document.getElementById('pairing-method-step');
@@ -144,7 +146,7 @@ async function init() {
   setupTheme();
   maybePromptDarkMode();
   await requestWakeLock();
-  requestNotificationPermission(); // TASK-047
+  await showNotificationPermissionScreen(notifScreen); // TASK-047
   showDashboard();
 
   // If the user has no monitors yet, jump straight to pairing
@@ -204,25 +206,10 @@ document.addEventListener('visibilitychange', async () => {
 
 // ---------------------------------------------------------------------------
 // Notification permission (TASK-047)
+// Handled by showNotificationPermissionScreen() in js/notifications.js,
+// called from init() above. The notification state is persisted to localStorage
+// via SETTING_KEYS.NOTIF_PROMPTED and SETTING_KEYS.NOTIF_GRANTED.
 // ---------------------------------------------------------------------------
-
-async function requestNotificationPermission() {
-  const alreadyPrompted = lsGet(SETTING_KEYS.NOTIF_PROMPTED, false);
-  if (alreadyPrompted) return;
-
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'default') {
-    lsSet(SETTING_KEYS.NOTIF_PROMPTED, true);
-    lsSet(SETTING_KEYS.NOTIF_GRANTED, Notification.permission === 'granted');
-    return;
-  }
-
-  // The full onboarding prompt UI is in TASK-031/TASK-047;
-  // for now, request without explanation screen
-  const result = await Notification.requestPermission();
-  lsSet(SETTING_KEYS.NOTIF_PROMPTED, true);
-  lsSet(SETTING_KEYS.NOTIF_GRANTED, result === 'granted');
-}
 
 // ---------------------------------------------------------------------------
 // Screen helpers

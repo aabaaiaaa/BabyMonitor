@@ -293,6 +293,17 @@
     </div>
   </section>
 
+  <!-- Notification permission screen (TASK-047): full-screen explanation shown
+       before the browser permission prompt fires. Content is injected by
+       js/notifications.js. Displayed after the tap-to-begin overlay is dismissed
+       and before the dashboard is shown, on first use only. -->
+  <section id="notif-screen" class="notif-screen hidden"
+           aria-labelledby="notif-heading" aria-label="Enable notifications">
+    <div class="notif-screen__inner">
+      <!-- Content populated by js/notifications.js -->
+    </div>
+  </section>
+
   <script type="module" src="js/parent.js"></script>
 </body>
 </html>
