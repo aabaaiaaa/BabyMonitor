@@ -190,6 +190,51 @@ let _fadeTimerStopId = null;
 let _musicModeDimApplied = false;
 
 // ---------------------------------------------------------------------------
+// Audio ducking state (TASK-038)
+// ---------------------------------------------------------------------------
+
+/**
+ * Dedicated gain node that sits between _audioGain and _audioCtx.destination.
+ * Normal value: 1.0 (no attenuation).  Ramped to DUCK_GAIN when the parent
+ * is speaking, then back to 1.0 when silence returns.
+ * @type {GainNode|null}
+ */
+let _duckingGain = null;
+
+/**
+ * AnalyserNode connected to the incoming speak-through MediaStream.
+ * Used to detect parent speech activity without relying on data-channel messages.
+ * @type {AnalyserNode|null}
+ */
+let _speakAnalyser = null;
+
+/**
+ * MediaStreamAudioSourceNode feeding _speakAnalyser.
+ * Disconnected and replaced each time a new speak-through track arrives.
+ * @type {MediaStreamAudioSourceNode|null}
+ */
+let _speakAnalyserSource = null;
+
+/**
+ * requestAnimationFrame handle for the ducking detector poll loop.
+ * @type {number|null}
+ */
+let _duckingRafId = null;
+
+/**
+ * True while the music is currently ducked (gain is below 1.0).
+ * @type {boolean}
+ */
+let _isDucked = false;
+
+/**
+ * performance.now() timestamp of the most recent detected parent speech frame.
+ * Used to determine when silence has persisted long enough to end ducking.
+ * @type {number}
+ */
+let _lastSpeakMs = 0;
+
+// ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
 
@@ -1151,7 +1196,7 @@ function _setupSpeakThrough(conn) {
   );
   if (!speakAudio) return;
 
-  pc.addEventListener('track', (event) => {
+  pc.addEventListener('track', async (event) => {
     // Only handle incoming audio tracks; ignore video tracks from the baby's
     // own stream (which are outgoing and do not trigger this event anyway).
     if (event.track.kind !== 'audio') return;
@@ -1166,6 +1211,16 @@ function _setupSpeakThrough(conn) {
       // overlay should have already satisfied the browser's interaction requirement.
       console.warn('[baby] speak-through audio play() failed (TASK-012):', err);
     });
+
+    // TASK-038: start the ducking detector on the incoming speak-through stream.
+    // Ensure the shared AudioContext exists first (it may not have been created
+    // yet if the user has not started music playback).
+    try {
+      await _ensureAudioCtx();
+      _startDuckingDetector(speakStream);
+    } catch (err) {
+      console.warn('[baby] Could not start ducking detector (TASK-038):', err);
+    }
 
     console.log('[baby] Speak-through audio track received (TASK-012)');
   });
@@ -2125,13 +2180,144 @@ async function _ensureAudioCtx() {
   if (!_audioCtx) {
     _audioCtx = new AudioContext();
     _audioGain = _audioCtx.createGain();
-    // Apply current music volume (0–100 → 0–1); TASK-038 ducking hooks in here.
+    // Apply current music volume (0–100 → 0–1).
     _audioGain.gain.value = state.musicVolume / 100;
-    _audioGain.connect(_audioCtx.destination);
+
+    // TASK-038: insert a dedicated ducking gain node between the master volume
+    // node and the audio destination so ducking can operate independently of
+    // the user-set volume level.
+    //   _audioGain → _duckingGain → destination
+    _duckingGain = _audioCtx.createGain();
+    _duckingGain.gain.value = 1.0;
+    _audioGain.connect(_duckingGain);
+    _duckingGain.connect(_audioCtx.destination);
   }
   if (_audioCtx.state === 'suspended') {
     await _audioCtx.resume();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Audio ducking (TASK-038)
+// ---------------------------------------------------------------------------
+
+/** Gain level applied to _duckingGain while the parent is speaking (~15%). */
+const DUCK_GAIN       = 0.15;
+/** Seconds to ramp the gain down when ducking begins. */
+const DUCK_RAMP_DOWN_S = 0.5;
+/** Seconds to ramp the gain back up when silence is detected. */
+const DUCK_RAMP_UP_S   = 1.5;
+/** RMS amplitude threshold above which a frame is considered to contain speech. */
+const DUCK_THRESHOLD   = 0.008;
+/** Milliseconds of continuous silence required before releasing the duck. */
+const DUCK_SILENCE_MS  = 800;
+
+/**
+ * Smoothly apply or release ducking on the shared _duckingGain node.
+ *
+ * Duck-on  : ramp to DUCK_GAIN over DUCK_RAMP_DOWN_S seconds.
+ * Duck-off : ramp back to 1.0  over DUCK_RAMP_UP_S  seconds.
+ *
+ * @param {boolean} duck — true to duck, false to restore.
+ */
+function _applyDucking(duck) {
+  if (!_duckingGain || !_audioCtx) return;
+  _isDucked = duck;
+  const now = _audioCtx.currentTime;
+  _duckingGain.gain.cancelScheduledValues(now);
+  _duckingGain.gain.setValueAtTime(_duckingGain.gain.value, now);
+  if (duck) {
+    _duckingGain.gain.linearRampToValueAtTime(DUCK_GAIN, now + DUCK_RAMP_DOWN_S);
+    console.log('[baby] Audio ducking ON — ramping to', DUCK_GAIN, '(TASK-038)');
+  } else {
+    _duckingGain.gain.linearRampToValueAtTime(1.0, now + DUCK_RAMP_UP_S);
+    console.log('[baby] Audio ducking OFF — ramping back to 1.0 (TASK-038)');
+  }
+}
+
+/**
+ * Attach an AnalyserNode to the given speak-through MediaStream and begin
+ * polling for speech activity on every animation frame.
+ *
+ * When the RMS of the incoming audio exceeds DUCK_THRESHOLD the music gain
+ * is ducked; when silence persists for DUCK_SILENCE_MS it is restored.
+ *
+ * The analyser is intentionally NOT connected to any audio output — it is
+ * used only for level monitoring.
+ *
+ * Any previously running detector is stopped first so renegotiated speak
+ * sessions (where the parent removes and re-adds the track) work correctly.
+ *
+ * @param {MediaStream} stream — the incoming speak-through MediaStream
+ */
+function _startDuckingDetector(stream) {
+  _stopDuckingDetector(); // clean up any previous instance
+
+  if (!_audioCtx) return;
+
+  _speakAnalyserSource = _audioCtx.createMediaStreamSource(stream);
+  _speakAnalyser = _audioCtx.createAnalyser();
+  _speakAnalyser.fftSize = 256;
+  _speakAnalyserSource.connect(_speakAnalyser);
+  // Intentionally not connected to any destination — analysis only.
+
+  const frameData = new Float32Array(_speakAnalyser.fftSize);
+
+  function tick() {
+    if (!_speakAnalyser) return;
+
+    _speakAnalyser.getFloatTimeDomainData(frameData);
+
+    // Compute RMS of the current audio frame.
+    let sumSq = 0;
+    for (let i = 0; i < frameData.length; i++) {
+      sumSq += frameData[i] * frameData[i];
+    }
+    const rms = Math.sqrt(sumSq / frameData.length);
+
+    const nowMs = performance.now();
+    if (rms > DUCK_THRESHOLD) {
+      _lastSpeakMs = nowMs;
+      if (!_isDucked) _applyDucking(true);
+    } else if (_isDucked && (nowMs - _lastSpeakMs) > DUCK_SILENCE_MS) {
+      _applyDucking(false);
+    }
+
+    _duckingRafId = requestAnimationFrame(tick);
+  }
+
+  _duckingRafId = requestAnimationFrame(tick);
+  console.log('[baby] Ducking detector started (TASK-038)');
+}
+
+/**
+ * Stop the ducking detector, disconnect its nodes, and immediately restore
+ * the ducking gain to 1.0 if it is currently lowered.
+ *
+ * Safe to call when no detector is running (no-op).
+ */
+function _stopDuckingDetector() {
+  if (_duckingRafId !== null) {
+    cancelAnimationFrame(_duckingRafId);
+    _duckingRafId = null;
+  }
+  if (_speakAnalyserSource) {
+    try { _speakAnalyserSource.disconnect(); } catch (_) { /* ignore */ }
+    _speakAnalyserSource = null;
+  }
+  _speakAnalyser = null;
+
+  // Release any active ducking so music does not stay muted indefinitely.
+  if (_isDucked) {
+    _isDucked = false;
+    if (_duckingGain && _audioCtx) {
+      const now = _audioCtx.currentTime;
+      _duckingGain.gain.cancelScheduledValues(now);
+      _duckingGain.gain.setValueAtTime(_duckingGain.gain.value, now);
+      _duckingGain.gain.linearRampToValueAtTime(1.0, now + DUCK_RAMP_UP_S);
+    }
+  }
+  console.log('[baby] Ducking detector stopped (TASK-038)');
 }
 
 /**
@@ -2515,6 +2701,9 @@ function handleDisconnect(reason) {
 
   // Stop any ongoing audio playback (TASK-013)
   _stopPlayback();
+
+  // Stop the speak-through ducking detector and restore gain (TASK-038).
+  _stopDuckingDetector();
 
   // Close the connection cleanly (closes data channel / peer connection)
   try { activeConnection?.close?.(); } catch (_) { /* ignore */ }

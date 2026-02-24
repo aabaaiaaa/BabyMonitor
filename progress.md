@@ -2,9 +2,9 @@
 
 ## Summary
 - **Total Tasks**: 71
-- **Completed**: 34
-- **Remaining**: 37
-- **Last Updated**: 2026-02-24T22:38:56.313Z
+- **Completed**: 35
+- **Remaining**: 36
+- **Last Updated**: 2026-02-24T22:43:02.387Z
 
 ## Iteration Log
 
@@ -279,4 +279,12 @@
 - **Exit Status**: success
 - **Tokens**: 2,911,639 total (2,298 in, 23,998 out, 76,609 cache-create, 2,808,734 cache-read)
 - **Cost**: $2.6256
+
+### Iteration 35 - 2026-02-24T22:38:58.842Z
+- **Task Completed**: TASK-038
+- **Summary**: Completed Implement audio ducking when parent speaks
+- **Duration**: 244s
+- **Exit Status**: success
+- **Tokens**: 1,504,708 total (28 in, 16,040 out, 52,577 cache-create, 1,436,063 cache-read)
+- **Cost**: $1.4478
 
