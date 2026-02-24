@@ -172,6 +172,8 @@ const cpTrackSelect       = document.getElementById('cp-track-select');
 const cpTimerBtns         = controlPanel?.querySelectorAll('.timer-btn') ?? [];
 const cpQualityBtns       = controlPanel?.querySelectorAll('.quality-btn') ?? [];
 const cpTimerCountdown    = document.getElementById('cp-timer-countdown');
+const cpTimerCustom       = document.getElementById('cp-timer-custom');       // TASK-014
+const cpTimerCustomSet    = document.getElementById('cp-timer-custom-set');   // TASK-014
 const cpFlipCamera        = document.getElementById('cp-flip-camera');
 const cpAudioOnly         = document.getElementById('cp-audio-only');
 const cpNoiseThreshold    = document.getElementById('cp-noise-threshold');
@@ -1101,6 +1103,37 @@ function _syncControlPanelState(s) {
   // TASK-028: battery-saving state from baby device
   if (cpScreenDim   && s.screenDim   != null) cpScreenDim.checked   = Boolean(s.screenDim);
   if (cpVideoPaused && s.videoPaused != null) cpVideoPaused.checked = Boolean(s.videoPaused);
+
+  // TASK-014: Fade-out timer countdown and button state
+  const fadeRemaining = s.fadeRemaining ?? 0;
+  const fadeDuration  = s.fadeDuration  ?? 0;
+
+  // Update countdown display.
+  if (cpTimerCountdown) {
+    if (fadeRemaining > 0) {
+      const mins = Math.floor(fadeRemaining / 60);
+      const secs = fadeRemaining % 60;
+      cpTimerCountdown.textContent = `Stopping in ${mins}:${String(secs).padStart(2, '0')}`;
+    } else {
+      cpTimerCountdown.textContent = '';
+    }
+  }
+
+  // Update timer button pressed state.
+  // When a timer is active, highlight the matching preset button (or none for custom).
+  // When the timer is off, highlight the "Off" button (data-duration="0").
+  cpTimerBtns.forEach(b => {
+    const btnSeconds = Number(b.dataset.duration) * 60;
+    let pressed;
+    if (fadeRemaining > 0) {
+      // Timer running: press the preset that matches the original duration.
+      pressed = (btnSeconds === fadeDuration && btnSeconds > 0);
+    } else {
+      // Timer off: press the "Off" button.
+      pressed = (btnSeconds === 0);
+    }
+    b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+  });
 }
 
 /** Get the connection for the currently open control panel. */
@@ -1155,15 +1188,27 @@ cpTrackSelect?.addEventListener('change', () => {
   if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_TRACK, cpTrackSelect.value);
 });
 
-// Timer buttons
+// Timer buttons (TASK-014)
 for (const btn of cpTimerBtns) {
   btn.addEventListener('click', () => {
     const duration = Number(btn.dataset.duration);
     const conn = getActiveConn();
     if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_FADE_TIMER, duration * 60);
+    // Optimistic visual update — STATE_SNAPSHOT from baby will confirm.
     cpTimerBtns.forEach(b => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+    if (cpTimerCountdown && duration === 0) cpTimerCountdown.textContent = '';
   });
 }
+
+// Custom timer input + Set button (TASK-014)
+cpTimerCustomSet?.addEventListener('click', () => {
+  const mins = parseInt(cpTimerCustom?.value ?? '0', 10);
+  if (!mins || mins < 1) return;
+  const conn = getActiveConn();
+  if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_FADE_TIMER, mins * 60);
+  // Clear preset button selection — custom duration won't match any preset.
+  cpTimerBtns.forEach(b => b.setAttribute('aria-pressed', 'false'));
+});
 
 // Quality buttons (TASK-025) — send SET_QUALITY to baby; baby applies and confirms via snapshot
 for (const btn of cpQualityBtns) {

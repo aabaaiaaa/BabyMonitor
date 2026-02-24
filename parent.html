@@ -257,6 +257,12 @@
           <button class="timer-btn" data-duration="60" aria-pressed="false">60 min</button>
           <button class="timer-btn" data-duration="0" aria-pressed="true">Off</button>
         </div>
+        <div class="timer-custom-row">
+          <input type="number" id="cp-timer-custom" class="timer-custom-input"
+                 min="1" max="180" placeholder="min"
+                 aria-label="Custom timer duration in minutes" />
+          <button id="cp-timer-custom-set" class="timer-btn">Custom</button>
+        </div>
         <p class="timer-countdown" id="cp-timer-countdown" aria-live="polite"></p>
       </section>
 

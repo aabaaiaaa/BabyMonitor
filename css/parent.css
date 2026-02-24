@@ -543,6 +543,31 @@
   min-height: 1.4em;
 }
 
+/* Custom timer row (TASK-014) */
+.timer-custom-row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  margin-top: var(--space-sm);
+}
+
+.timer-custom-input {
+  width: 5.5rem;
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-sm);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  background: var(--color-bg);
+  text-align: center;
+}
+
+.timer-custom-input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
 /* --------------------------------------------------------------------------
    Speak-through button (TASK-012)
    -------------------------------------------------------------------------- */

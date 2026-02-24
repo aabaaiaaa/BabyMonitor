@@ -24,6 +24,8 @@
  *   stopTrack()                        — stop immediately
  *   switchTrack(trackId)               — cross-fade to a new track (500 ms)
  *   fadeOutAndStop(durationSeconds)    — smooth fade then stop; returns Promise
+ *   scheduleFadeOut(totalSeconds)      — pre-schedule exponential ramp (TASK-014)
+ *   cancelScheduledFade()              — cancel pre-scheduled ramp (TASK-014)
  *   isMusicPlaying()                   — boolean
  *   getCurrentTrackId()                — string | null
  */
@@ -89,6 +91,9 @@ const _bufferCache = {};
  * @param {AudioContext} audioCtx      — the shared AudioContext from baby.js
  * @param {GainNode}     destinationNode — master volume GainNode from baby.js
  */
+// Public API additions documented in the module header:
+//   scheduleFadeOut(totalSeconds)    — schedule exponential ramp in advance (TASK-014)
+//   cancelScheduledFade()            — cancel the pre-scheduled ramp (TASK-014)
 export function attachMusicPlayer(audioCtx, destinationNode) {
   if (_ctx === audioCtx && _musicGain) return; // already attached to this context
   _ctx      = audioCtx;
@@ -220,6 +225,66 @@ export function isMusicPlaying() {
  */
 export function getCurrentTrackId() {
   return _activeTrackId;
+}
+
+/**
+ * Schedule an exponential GainNode fade-out, timed from now.
+ *
+ * The fade window is 10% of `totalSeconds`, clamped between 30 s (minimum)
+ * and 300 s / 5 min (maximum).  Examples:
+ *   30 min (1800 s) → 180 s fade window (10%)
+ *   60 min (3600 s) → 300 s fade window (capped at 5 min)
+ *    5 min  (300 s) →  30 s fade window (floor)
+ *
+ * The ramp is fully pre-scheduled via the Web Audio API clock so it runs
+ * frame-accurately without any polling or setInterval.
+ *
+ * The source node is NOT stopped here — the caller is responsible for
+ * stopping it via stopTrack() once the total duration has elapsed.
+ *
+ * @param {number} totalSeconds — timer duration from now, in seconds
+ * @returns {{ fadeWindow: number }} — the computed fade window in seconds
+ */
+export function scheduleFadeOut(totalSeconds) {
+  if (!_ctx || !_musicGain || !_activeSource) {
+    return { fadeWindow: 0 };
+  }
+
+  const fadeWindow     = Math.max(30, Math.min(300, totalSeconds * 0.1));
+  const fadeStartDelay = Math.max(0, totalSeconds - fadeWindow);
+  const now            = _ctx.currentTime;
+
+  _musicGain.gain.cancelScheduledValues(now);
+  _musicGain.gain.setValueAtTime(_musicGain.gain.value, now);
+
+  if (fadeStartDelay > 0) {
+    // Hold at current level until the fade window begins.
+    _musicGain.gain.setValueAtTime(1.0, now + fadeStartDelay);
+  }
+
+  // Exponential ramp to near-silence.
+  // exponentialRampToValueAtTime requires a positive target value (> 0).
+  _musicGain.gain.exponentialRampToValueAtTime(0.0001, now + totalSeconds);
+
+  console.log(
+    `[music-player] Scheduled fade-out — total: ${totalSeconds}s,`,
+    `hold until: +${fadeStartDelay.toFixed(1)}s,`,
+    `fade window: ${fadeWindow.toFixed(1)}s (TASK-014)`,
+  );
+
+  return { fadeWindow };
+}
+
+/**
+ * Cancel any pre-scheduled GainNode fade-out ramp and restore gain to 1.0.
+ * Call this when the timer is cancelled mid-countdown.
+ * Safe to call even if no fade was scheduled.
+ */
+export function cancelScheduledFade() {
+  if (!_ctx || !_musicGain) return;
+  _musicGain.gain.cancelScheduledValues(_ctx.currentTime);
+  _musicGain.gain.setValueAtTime(1.0, _ctx.currentTime);
+  console.log('[music-player] Pre-scheduled fade cancelled (TASK-014)');
 }
 
 // ---------------------------------------------------------------------------

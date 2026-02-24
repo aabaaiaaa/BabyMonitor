@@ -47,6 +47,8 @@ import {
   stopTrack as _mpStopTrack,
   switchTrack as _mpSwitchTrack,
   fadeOutAndStop as _mpFadeOutAndStop,
+  scheduleFadeOut as _mpScheduleFadeOut,
+  cancelScheduledFade as _mpCancelScheduledFade,
   isMusicPlaying as _mpIsPlaying,
   BUILTIN_TRACKS,
 } from './music-player.js';
@@ -67,6 +69,7 @@ const deviceId = getOrCreateDeviceId();
  * @property {number}      musicVolume    — 0–100
  * @property {string|null} currentTrack
  * @property {number}      fadeRemaining  — seconds remaining on fade timer, 0 = off
+ * @property {number}      fadeDuration   — total duration the timer was set to (TASK-014)
  * @property {string}      cameraFacing   — 'user'|'environment'
  * @property {boolean}     audioOnly
  * @property {string}      quality        — 'low'|'medium'|'high'
@@ -81,6 +84,7 @@ const state = {
   musicVolume:   70,
   currentTrack:  settings.defaultTrack ?? null,
   fadeRemaining: 0,
+  fadeDuration:  0,   // TASK-014: original timer duration (seconds)
   cameraFacing:  settings.cameraFacing ?? 'environment',
   audioOnly:     settings.audioOnly ?? false,
   quality:       settings.videoQuality ?? 'medium',
@@ -164,11 +168,19 @@ let _audioOffset  = 0;
 let _musicPlayerAttached = false;
 
 /**
- * setInterval ID for the fade-out countdown timer (TASK-014 / TASK-019).
- * Null when no timer is running.
+ * setInterval ID for the fade-out countdown ticker (TASK-014).
+ * Drives state.fadeRemaining decrements and STATE_SNAPSHOT broadcasts.
+ * The audio fade itself is pre-scheduled via the Web Audio API clock.
  * @type {number|null}
  */
 let _fadeTimerIntervalId = null;
+
+/**
+ * setTimeout ID for stopping playback when the fade timer expires (TASK-014).
+ * Null when no timer is running.
+ * @type {number|null}
+ */
+let _fadeTimerStopId = null;
 
 /**
  * True if music mode automatically applied the screen-dim overlay.
@@ -1796,70 +1808,89 @@ function _stopMusicMode() {
 // ---------------------------------------------------------------------------
 
 /**
- * Start the fade-out countdown timer.
+ * Start the fade-out countdown timer (TASK-014).
  *
- * Counts down `seconds` seconds, broadcasting STATE_SNAPSHOT on each tick
- * so the parent dashboard can show a live countdown.  When the timer reaches
- * zero the music fades out gracefully over 3 seconds (if music mode is
- * active) and state.soothingMode is set to 'off'.
+ * The audio fade uses a pre-scheduled exponential GainNode ramp (no polling):
+ *   fade window = 10% of `seconds`, clamped between 30 s and 300 s (5 min).
+ * The countdown ticker (setInterval, 1 s) is used only to broadcast
+ * STATE_SNAPSHOT updates so the parent dashboard shows a live countdown.
+ * A one-shot setTimeout stops the source node when the timer expires.
  *
  * Cancels any previously running timer before starting.
  *
- * @param {number} seconds — countdown duration (0 = cancel)
+ * @param {number} seconds — countdown duration in seconds (0 = cancel)
  */
 function startFadeTimer(seconds) {
   cancelFadeTimer();
   if (seconds <= 0) return;
 
   state.fadeRemaining = seconds;
+  state.fadeDuration  = seconds;
   sendStateSnapshot();
 
+  // Pre-schedule the exponential GainNode ramp via the Web Audio API clock.
+  // This ensures frame-accurate fading without polling.
+  if (state.soothingMode === 'music' && _mpIsPlaying()) {
+    _mpScheduleFadeOut(seconds);
+  }
+
+  // One-shot timeout: stops playback and turns off soothing when timer expires.
+  _fadeTimerStopId = setTimeout(() => {
+    _fadeTimerStopId = null;
+    clearInterval(_fadeTimerIntervalId);
+    _fadeTimerIntervalId = null;
+    state.fadeRemaining = 0;
+
+    console.log('[baby] Fade timer expired — stopping soothing mode (TASK-014)');
+
+    if (state.soothingMode === 'music') {
+      // The GainNode ramp has already silenced the audio; just stop the source.
+      _mpStopTrack();
+      if (_musicModeDimApplied) {
+        babyMonitor?.classList.remove('baby-monitor--screen-dim');
+        _musicModeDimApplied = false;
+      }
+      state.soothingMode = 'off';
+      babyMonitor?.setAttribute('data-soothing-mode', 'off');
+      _clearCanvas();
+    } else {
+      // Non-music soothing mode — stop canvas effects.
+      startSoothingMode('off');
+    }
+    sendStateSnapshot();
+  }, seconds * 1000);
+
+  // Countdown ticker: decrements state.fadeRemaining every second and
+  // broadcasts STATE_SNAPSHOT so the parent can show a live countdown.
   _fadeTimerIntervalId = setInterval(() => {
     if (state.fadeRemaining > 0) {
       state.fadeRemaining--;
       sendStateSnapshot();
     }
-
-    if (state.fadeRemaining <= 0) {
-      // Timer expired — fade out music and turn off soothing mode.
-      clearInterval(_fadeTimerIntervalId);
-      _fadeTimerIntervalId = null;
-
-      console.log('[baby] Fade timer expired — stopping music (TASK-019)');
-
-      if (state.soothingMode === 'music' && _mpIsPlaying()) {
-        // Graceful 3-second audio fade, then switch mode to 'off'.
-        _mpFadeOutAndStop(3).then(() => {
-          if (state.soothingMode === 'music') {
-            // Remove dim overlay applied by music mode.
-            if (_musicModeDimApplied) {
-              babyMonitor?.classList.remove('baby-monitor--screen-dim');
-              _musicModeDimApplied = false;
-            }
-            state.soothingMode = 'off';
-            babyMonitor?.setAttribute('data-soothing-mode', 'off');
-            _clearCanvas();
-            sendStateSnapshot();
-          }
-        });
-      } else {
-        // Not in music mode — just turn off soothing.
-        startSoothingMode('off');
-        sendStateSnapshot();
-      }
-    }
   }, 1000);
 }
 
 /**
- * Cancel the active fade-out timer (if any) and reset fadeRemaining to 0.
+ * Cancel the active fade-out timer (if any) and restore audio to full volume.
+ *
+ * Clears:
+ *   - the countdown interval
+ *   - the expiry setTimeout
+ *   - any pre-scheduled GainNode ramp (restores gain to 1.0 immediately)
  */
 function cancelFadeTimer() {
   if (_fadeTimerIntervalId !== null) {
     clearInterval(_fadeTimerIntervalId);
     _fadeTimerIntervalId = null;
   }
+  if (_fadeTimerStopId !== null) {
+    clearTimeout(_fadeTimerStopId);
+    _fadeTimerStopId = null;
+  }
+  // Cancel any pre-scheduled GainNode ramp and restore volume to 1.0.
+  _mpCancelScheduledFade();
   state.fadeRemaining = 0;
+  state.fadeDuration  = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1977,6 +2008,7 @@ function sendStateSnapshot() {
     currentTrack:  state.currentTrack,
     musicVolume:   state.musicVolume,
     fadeRemaining: state.fadeRemaining,
+    fadeDuration:  state.fadeDuration,  // TASK-014: original timer duration
     cameraFacing:  state.cameraFacing,
     audioOnly:     state.audioOnly,
     quality:       state.quality,
