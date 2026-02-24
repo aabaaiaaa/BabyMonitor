@@ -107,15 +107,23 @@ export function chunkPayload(payload, chunkSize = CHUNK_SIZE) {
 /**
  * Render a grid of QR codes representing a chunked payload.
  *
+ * Cell size selection (in priority order):
+ *   1. `options.qrSize`  — explicit override (use when you know the target size)
+ *   2. Computed from the container's current layout width so the whole grid
+ *      fits on screen without horizontal overflow.  A minimum of 120 px and
+ *      maximum of 240 px per cell keeps codes scannable on both phones and
+ *      tablets.  Falls back to 180 px when layout info is unavailable (e.g.
+ *      container not yet in the DOM).
+ *
  * @param {HTMLElement} container   — element to render the grid into
  * @param {string} payload          — the full payload to encode
  * @param {object} [options]
  * @param {number} [options.chunkSize=CHUNK_SIZE]
- * @param {number} [options.qrSize=180]  — size in px of each individual QR
+ * @param {number} [options.qrSize]  — explicit cell size in px (optional)
  * @returns {number} number of QR codes rendered
  */
 export function renderQRGrid(container, payload, options = {}) {
-  const { chunkSize = CHUNK_SIZE, qrSize = 180 } = options;
+  const { chunkSize = CHUNK_SIZE, qrSize: explicitSize } = options;
 
   if (typeof QRCode === 'undefined') {
     console.error('[qr] QRCode library not loaded');
@@ -128,8 +136,25 @@ export function renderQRGrid(container, payload, options = {}) {
   // Clear previous content
   container.innerHTML = '';
 
-  // Set CSS grid columns based on chunk count
+  // Determine column count from chunk total
   const cols = chunks.length <= 4 ? chunks.length : Math.ceil(Math.sqrt(chunks.length));
+
+  // Determine individual QR cell size.
+  let qrSize;
+  if (explicitSize != null) {
+    // Caller provided an explicit size — honour it exactly.
+    qrSize = explicitSize;
+  } else {
+    // Fit cells to the container's available width.
+    // offsetWidth is 0 for hidden elements; fall back to 400 px in that case.
+    const containerWidth = container.offsetWidth || 400;
+    const paddingTotal   = 16; // --space-sm (8 px) × 2 sides
+    const gapTotal       = (cols - 1) * 4; // --space-xs (4 px) between columns
+    const cellWidth      = Math.floor((containerWidth - paddingTotal - gapTotal) / cols);
+    qrSize = Math.max(120, Math.min(240, cellWidth));
+  }
+
+  // Apply grid layout
   container.style.gridTemplateColumns = `repeat(${cols}, ${qrSize}px)`;
 
   for (const chunk of chunks) {

@@ -32,7 +32,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Use the Screen Wake Lock API (`navigator.wakeLock.request('screen')`) to prevent the baby monitor device and parent monitor device from going to sleep while the app is in use. Request the wake lock when a mode is entered and release it when the user navigates away. Re-acquire the lock automatically if it is released by the system (e.g. tab becomes visible again). Fall back gracefully on browsers that do not support the API.
 
 ### TASK-004: Implement QR code generation for both connection methods
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-001
 - **Description**: Integrate a QR code generation library (e.g. `qrcode.js` or `qr-code-styling`). The QR utility must support two distinct display modes used in different parts of the app. (1) Single QR code: used in the PeerJS connection method to display a short peer ID string (typically a UUID, ~36 characters). This is a single, easily scannable QR shown prominently. (2) Multi-QR grid: used in the offline QR fallback connection method to display a large payload (WebRTC SDP blob, ~1–2 KB). Implement a chunking utility that splits the payload into fixed-size chunks of approximately 300 bytes each. Each chunk is prefixed with a sequence header (e.g. `1/5:`). Render all chunks as a grid of small, low-density QR codes displayed simultaneously on screen. Chunk size must be tuned so each QR uses low error-correction and stays at a comfortable scan density. Both modes are used within the pairing flow (TASK-006).

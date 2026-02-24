@@ -457,6 +457,9 @@ textarea {
   box-shadow: var(--shadow-md);
   width: 100%;
   max-width: 600px;
+  /* Allow horizontal scroll when grid cells exceed container width
+     (can happen on very narrow screens with many chunks). */
+  overflow-x: auto;
 }
 
 .qr-grid-container canvas,

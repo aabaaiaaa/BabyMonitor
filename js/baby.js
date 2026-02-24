@@ -308,9 +308,10 @@ async function startOfflinePairing() {
       },
     });
 
-    // Step 3: encode offer as QR grid for parent to scan
+    // Step 3: encode offer as QR grid for parent to scan.
+    // No explicit qrSize: renderQRGrid will size cells to fit the container.
     if (offlineQrContainer) {
-      renderQRGrid(offlineQrContainer, offerJson, { qrSize: 160 });
+      renderQRGrid(offlineQrContainer, offerJson);
     }
     if (pairingInstruction) {
       pairingInstruction.textContent = 'Show this grid to the parent device camera, then scan the parent\'s answer.';

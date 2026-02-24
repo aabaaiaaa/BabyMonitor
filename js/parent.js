@@ -368,7 +368,8 @@ async function startOfflinePairing() {
     if (offlineScanVideo.parentElement) offlineScanVideo.parentElement.classList.add('hidden');
     if (offlineAnswerContainer) {
       offlineAnswerContainer.classList.remove('hidden');
-      renderQRGrid(offlineAnswerContainer, answerJson, { qrSize: 160 });
+      // No explicit qrSize: renderQRGrid will size cells to fit the container.
+      renderQRGrid(offlineAnswerContainer, answerJson);
       if (pairingStatusOffline) {
         pairingStatusOffline.textContent = 'Show this to the baby device camera.';
       }
