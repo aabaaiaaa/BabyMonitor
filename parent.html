@@ -395,8 +395,12 @@
       <!-- Noise threshold (TASK-024) -->
       <section class="control-group" aria-labelledby="cp-noise-label">
         <h3 id="cp-noise-label">Noise Alert Threshold</h3>
+        <label class="settings-field__label" for="cp-noise-threshold">
+          Alert above <output id="cp-noise-threshold-value">60</output>%
+        </label>
         <input type="range" id="cp-noise-threshold" min="0" max="100" value="60"
                aria-label="Noise alert sensitivity" />
+        <p class="settings-hint">A pulsing border and banner appear when noise exceeds this level.</p>
       </section>
 
       <!-- Low battery alert threshold (TASK-032) -->

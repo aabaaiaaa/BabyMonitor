@@ -449,6 +449,19 @@
   background: var(--color-bg);
   border-radius: var(--radius-pill);
   overflow: hidden;
+  position: relative;
+}
+
+/* Threshold position marker — vertical line at the current threshold % (TASK-024) */
+.noise-threshold-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(150, 30, 30, 0.55);
+  pointer-events: none;
+  border-radius: 0;
+  /* left is set dynamically via JS as `${threshold}%` */
 }
 
 .noise-bar {

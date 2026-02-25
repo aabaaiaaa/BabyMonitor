@@ -166,7 +166,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Allow the parent to assign a label to each baby monitor (e.g. "Nursery", "Alice's Room"). Store this label alongside any saved configuration for that device in `localStorage`. On the baby monitor device, assign it a unique device ID (stored in `localStorage`) that is included in its data channel messages. The parent stores a mapping of device ID to label. On subsequent pairing sessions, if the device ID is recognised, automatically restore the saved label. Provide a settings UI for managing saved devices (rename, delete).
 
 ### TASK-024: Implement noise level visualiser on parent dashboard
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-011, TASK-032
 - **Description**: For each connected baby monitor, attach a Web Audio API `AnalyserNode` to the incoming audio stream. Compute the RMS amplitude in real time and render a compact noise-level bar or waveform indicator within the baby's panel on the parent dashboard. The visualiser should update at ~10 fps to remain lightweight. Add a threshold line the parent can adjust per device; if noise exceeds the threshold, the panel should highlight visually (e.g. pulsing border) as an alert. The per-device threshold value is stored in that device's profile in `localStorage` (see TASK-032) so it persists across sessions. This lets parents monitor audio activity without having to watch the video.

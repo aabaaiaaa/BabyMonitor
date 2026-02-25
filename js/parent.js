@@ -196,7 +196,8 @@ const cpTimerCustom       = document.getElementById('cp-timer-custom');       //
 const cpTimerCustomSet    = document.getElementById('cp-timer-custom-set');   // TASK-014
 const cpFlipCamera        = document.getElementById('cp-flip-camera');
 const cpAudioOnly         = document.getElementById('cp-audio-only');
-const cpNoiseThreshold    = document.getElementById('cp-noise-threshold');
+const cpNoiseThreshold      = document.getElementById('cp-noise-threshold');
+const cpNoiseThresholdValue = document.getElementById('cp-noise-threshold-value'); // TASK-024
 const cpMotionThreshold   = document.getElementById('cp-motion-threshold'); // TASK-026
 // Snooze controls (TASK-027) — event delegation wired via cp-snooze-group / cp-snooze-all-group
 const cpSnoozeGroup       = document.getElementById('cp-snooze-group');
@@ -1340,6 +1341,7 @@ function createMonitorPanel(deviceId, label, conn) {
     <div class="monitor-panel__footer">
       <div class="noise-bar-wrap" title="Noise level" aria-label="Noise level">
         <div class="noise-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+        <div class="noise-threshold-marker" aria-hidden="true"></div>
       </div>
       <span class="motion-indicator" title="Movement detected" aria-label="Movement detected" aria-hidden="true"
             data-level="0">🚶</span>
@@ -1391,6 +1393,18 @@ function createMonitorPanel(deviceId, label, conn) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Position the threshold marker line on a monitor panel's noise bar.
+ * Called once on first render and again whenever the threshold changes.
+ * @param {MonitorEntry} entry
+ */
+function _updateNoiseThresholdMarker(entry) {
+  const marker = entry.panelEl?.querySelector('.noise-threshold-marker');
+  if (marker) {
+    marker.style.left = `${entry.noiseThreshold}%`;
+  }
+}
+
+/**
  * Start a noise level visualiser for a monitor entry.
  * @param {MonitorEntry} entry
  */
@@ -1399,9 +1413,17 @@ function startNoiseVisualiser(entry) {
   const noiseBar = panel?.querySelector('.noise-bar');
   if (!noiseBar || !entry.analyserNode) return;
 
+  // Set initial threshold marker position (TASK-024)
+  _updateNoiseThresholdMarker(entry);
+
   const bufferLength = entry.analyserNode.frequencyBinCount;
   const dataArray    = new Uint8Array(bufferLength);
   let frameCount     = 0;
+
+  // Cooldown: prevent repeated noise banners for sustained loud noise.
+  // The alert can re-fire at most once every NOISE_ALERT_COOLDOWN_MS.
+  const NOISE_ALERT_COOLDOWN_MS = 15_000;
+  let lastNoiseAlertTime = 0;
 
   function tick() {
     if (!monitors.has(entry.deviceId)) return; // Monitor removed
@@ -1432,6 +1454,15 @@ function startNoiseVisualiser(entry) {
       noiseBar.classList.toggle('above-threshold', aboveThreshold && level < 80);
       noiseBar.classList.toggle('high',            level >= 80);
       entry.panelEl?.classList.toggle('monitor-panel--alert', aboveThreshold);
+
+      // Show noise alert banner with cooldown (TASK-024)
+      if (aboveThreshold) {
+        const now = Date.now();
+        if (now - lastNoiseAlertTime >= NOISE_ALERT_COOLDOWN_MS) {
+          lastNoiseAlertTime = now;
+          showNoiseAlert(entry.deviceId, entry.label);
+        }
+      }
     }
 
     requestAnimationFrame(tick);
@@ -1586,8 +1617,9 @@ function openControlPanel(deviceId) {
   controlPanelDeviceId = deviceId;
   if (controlPanelTitle) controlPanelTitle.textContent = `Controls — ${entry.label}`;
 
-  // Populate noise threshold from profile
+  // Populate noise threshold from profile (TASK-024)
   if (cpNoiseThreshold) cpNoiseThreshold.value = String(entry.noiseThreshold);
+  if (cpNoiseThresholdValue) cpNoiseThresholdValue.value = String(entry.noiseThreshold);
 
   // Populate motion threshold from profile (TASK-026)
   if (cpMotionThreshold) cpMotionThreshold.value = String(entry.motionThreshold);
@@ -2181,7 +2213,20 @@ cpPowerSaver?.addEventListener('change', () => {
   }
 });
 
-// Noise threshold
+// Noise threshold — live update label and marker as the slider moves (TASK-024)
+cpNoiseThreshold?.addEventListener('input', () => {
+  if (!controlPanelDeviceId) return;
+  const entry = monitors.get(controlPanelDeviceId);
+  if (entry) {
+    entry.noiseThreshold = Number(cpNoiseThreshold.value);
+    // Update the live label
+    if (cpNoiseThresholdValue) cpNoiseThresholdValue.value = cpNoiseThreshold.value;
+    // Reposition the threshold marker on the noise bar
+    _updateNoiseThresholdMarker(entry);
+  }
+});
+
+// Noise threshold — persist to device profile when slider is released (TASK-024)
 cpNoiseThreshold?.addEventListener('change', () => {
   if (!controlPanelDeviceId) return;
   const entry = monitors.get(controlPanelDeviceId);
@@ -2822,6 +2867,50 @@ function showMovementAlert(deviceId, label) {
   _sendBackgroundNotification(
     'Baby Monitor — Movement Detected',
     `${label}: Movement has been detected.`,
+    key,
+  );
+}
+
+/**
+ * Display a noise alert banner and send a background notification when the
+ * baby's audio level exceeds the configured threshold (TASK-024, TASK-029).
+ *
+ * Uses a timestamp-based cooldown (15 seconds per device) to avoid spamming
+ * repeated banners for sustained loud noise.  The existing banner is replaced
+ * on each re-fire so the timestamp stays fresh.
+ *
+ * @param {string} deviceId
+ * @param {string} label
+ */
+function showNoiseAlert(deviceId, label) {
+  const key = `${deviceId}:noise`;
+
+  // Replace any existing noise banner for this device so the user always
+  // sees a fresh alert rather than multiple stale banners.
+  const existing = alertBanners?.querySelector(`[data-alert-key="${escapeHtml(key)}"]`);
+  if (existing) existing.remove();
+  activeAlerts.delete(key);
+  activeAlerts.add(key);
+
+  const banner = document.createElement('div');
+  banner.className = 'alert-banner alert-banner--noise';
+  banner.setAttribute('role', 'alert');
+  banner.dataset.alertKey = key;
+  banner.innerHTML = `
+    🔊 <strong>${escapeHtml(label)}</strong>: Noise level alert
+    <button class="alert-banner__dismiss" aria-label="Dismiss noise alert">✕</button>
+  `;
+  banner.querySelector('.alert-banner__dismiss')?.addEventListener('click', () => {
+    banner.remove();
+    activeAlerts.delete(key);
+  });
+
+  alertBanners?.prepend(banner);
+
+  // Background notification (TASK-029): delivered when the tab is hidden.
+  _sendBackgroundNotification(
+    'Baby Monitor — Noise Alert',
+    `${label}: Noise level has exceeded the threshold.`,
     key,
   );
 }
