@@ -264,6 +264,17 @@ body.baby-screen {
 }
 
 /* --------------------------------------------------------------------------
+   Combined mode — light + music (TASK-054)
+   The canvas renders the chosen light effect at reduced brightness so the
+   display is soothing without being as bright as a standalone light mode.
+   The screen-dim overlay must NOT be added in combined mode (the light
+   effect is the intentional visual output).
+   -------------------------------------------------------------------------- */
+.baby-monitor[data-soothing-mode="combined"] .soothing-canvas {
+  opacity: 0.65;
+}
+
+/* --------------------------------------------------------------------------
    Baby monitor pairing section: dark theme to match baby device aesthetic
    -------------------------------------------------------------------------- */
 body.baby-screen .pairing-section {

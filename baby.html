@@ -254,7 +254,18 @@
             <button class="mode-btn" data-mode="water" aria-pressed="false">🌊 Water</button>
             <button class="mode-btn" data-mode="stars" aria-pressed="false">✨ Stars</button>
             <button class="mode-btn" data-mode="music" aria-pressed="false">🎵 Music</button>
+            <button class="mode-btn" data-mode="combined" aria-pressed="false">✨🎵 Light+Music</button>
             <button class="mode-btn" data-mode="off" aria-pressed="true">Off</button>
+          </div>
+          <!-- TASK-054: Light effect selector — only visible in combined mode -->
+          <div class="settings-field settings-field--inline" id="combined-light-field" hidden>
+            <label class="settings-field__label" for="baby-combined-light">Light effect</label>
+            <select id="baby-combined-light" class="settings-field__input"
+                    aria-label="Light effect to display in combined mode">
+              <option value="candle">🕯 Candle</option>
+              <option value="water">🌊 Water</option>
+              <option value="stars" selected>✨ Stars</option>
+            </select>
           </div>
           <!-- TASK-032: Default track selector — saved as DEFAULT_TRACK in localStorage -->
           <div class="settings-field settings-field--inline" id="default-track-field">

@@ -709,6 +709,7 @@ export const MSG = {
   SPEAK_STOP:         'speakStop',
   DISCONNECT:         'disconnect',
   SET_QUALITY:        'setQuality',    // value: 'low'|'medium'|'high'
+  SET_COMBINED_LIGHT: 'setCombinedLight', // value: 'candle'|'water'|'stars' (TASK-054)
 
   // Baby → Parent status updates
   STATE_SNAPSHOT:     'stateSnapshot', // full state object

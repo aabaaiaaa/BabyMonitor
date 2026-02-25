@@ -67,32 +67,34 @@ const deviceId = getOrCreateDeviceId();
 
 /**
  * @typedef {object} BabyState
- * @property {string}      soothingMode   — 'candle'|'water'|'stars'|'music'|'off'
- * @property {number}      musicVolume    — 0–100
+ * @property {string}      soothingMode         — 'candle'|'water'|'stars'|'music'|'combined'|'off'
+ * @property {string}      combinedLightEffect  — 'candle'|'water'|'stars' — light used in combined mode (TASK-054)
+ * @property {number}      musicVolume          — 0–100
  * @property {string|null} currentTrack
- * @property {number}      fadeRemaining  — seconds remaining on fade timer, 0 = off
- * @property {number}      fadeDuration   — total duration the timer was set to (TASK-014)
- * @property {string}      cameraFacing   — 'user'|'environment'
+ * @property {number}      fadeRemaining        — seconds remaining on fade timer, 0 = off
+ * @property {number}      fadeDuration         — total duration the timer was set to (TASK-014)
+ * @property {string}      cameraFacing         — 'user'|'environment'
  * @property {boolean}     audioOnly
- * @property {string}      quality        — 'low'|'medium'|'high'
- * @property {boolean}     locked         — touch lock engaged
- * @property {boolean}     screenDim      — TASK-028: screen dimmed to save battery
- * @property {boolean}     videoPaused    — TASK-028: video track paused (parent-commanded)
+ * @property {string}      quality              — 'low'|'medium'|'high'
+ * @property {boolean}     locked               — touch lock engaged
+ * @property {boolean}     screenDim            — TASK-028: screen dimmed to save battery
+ * @property {boolean}     videoPaused          — TASK-028: video track paused (parent-commanded)
  */
 
 /** @type {BabyState} */
 const state = {
-  soothingMode:  settings.defaultMode ?? 'off',
-  musicVolume:   70,
-  currentTrack:  settings.defaultTrack ?? null,
-  fadeRemaining: 0,
-  fadeDuration:  0,   // TASK-014: original timer duration (seconds)
-  cameraFacing:  settings.cameraFacing ?? 'environment',
-  audioOnly:     settings.audioOnly ?? false,
-  quality:       settings.videoQuality ?? 'medium',
-  locked:        false,
-  screenDim:     false,  // TASK-028: dimmed display mode
-  videoPaused:   false,  // TASK-028: video track paused by parent command
+  soothingMode:        settings.defaultMode ?? 'off',
+  combinedLightEffect: settings.defaultCombinedLight ?? 'stars', // TASK-054
+  musicVolume:         70,
+  currentTrack:        settings.defaultTrack ?? null,
+  fadeRemaining:       0,
+  fadeDuration:        0,   // TASK-014: original timer duration (seconds)
+  cameraFacing:        settings.cameraFacing ?? 'environment',
+  audioOnly:           settings.audioOnly ?? false,
+  quality:             settings.videoQuality ?? 'medium',
+  locked:              false,
+  screenDim:           false,  // TASK-028: dimmed display mode
+  videoPaused:         false,  // TASK-028: video track paused by parent command
 };
 
 /** @type {MediaStream|null} Local camera/mic stream */
@@ -329,6 +331,8 @@ const orientationApiNote  = document.getElementById('orientation-api-note');  //
 const disconnectBtn       = document.getElementById('btn-disconnect');
 const settingsCloseBtn    = document.getElementById('baby-settings-close');
 const babyDefaultTrack    = document.getElementById('baby-default-track');  // TASK-032
+const combinedLightSelect = document.getElementById('baby-combined-light');  // TASK-054
+const combinedLightField  = document.getElementById('combined-light-field'); // TASK-054
 
 // Audio library (TASK-049)
 const babyLibraryList     = document.getElementById('baby-library-list');
@@ -1660,8 +1664,10 @@ function startSoothingMode(mode) {
     _animFrame = null;
   }
 
-  // Stop music if we are leaving music mode (TASK-019).
-  if (state.soothingMode === 'music' && mode !== 'music') {
+  // Stop music if we are leaving music or combined mode (TASK-019, TASK-054).
+  // Do not stop when transitioning between music ↔ combined since both use audio.
+  if ((state.soothingMode === 'music' || state.soothingMode === 'combined') &&
+      mode !== 'music' && mode !== 'combined') {
     _stopMusicMode();
   }
 
@@ -1676,16 +1682,20 @@ function startSoothingMode(mode) {
     btn.setAttribute('aria-pressed', btn.dataset.mode === mode ? 'true' : 'false');
   }
 
+  // TASK-054: Show the combined light selector only in combined mode.
+  if (combinedLightField) combinedLightField.hidden = (mode !== 'combined');
+
   // Ensure canvas dimensions are correct before any rendering.
   _resizeCanvas();
 
   switch (mode) {
-    case 'candle': _startCandleEffect();   break; // TASK-016
-    case 'water':  _startWaterEffect();    break; // TASK-017
-    case 'stars':  _startStarsEffect();    break; // TASK-018
-    case 'music':  _startMusicMode();      break; // TASK-019
-    case 'off':    _clearCanvas();         break;
-    default:       _clearCanvas();
+    case 'candle':   _startCandleEffect();   break; // TASK-016
+    case 'water':    _startWaterEffect();    break; // TASK-017
+    case 'stars':    _startStarsEffect();    break; // TASK-018
+    case 'music':    _startMusicMode();      break; // TASK-019
+    case 'combined': _startCombinedMode();   break; // TASK-054
+    case 'off':      _clearCanvas();         break;
+    default:         _clearCanvas();
   }
 }
 
@@ -2249,6 +2259,59 @@ function _stopMusicMode() {
   }
 }
 
+/**
+ * Combined light + music mode (TASK-054).
+ *
+ * Renders the selected light canvas effect at reduced brightness (via CSS
+ * opacity: 0.65 on the canvas) while simultaneously playing the selected
+ * soothing audio track.
+ *
+ * Unlike music-only mode, the screen-dim overlay is NOT applied — the light
+ * effect IS the visual output.  If the parent transitions from music mode to
+ * combined mode, any previously applied screen-dim is cleared here.
+ *
+ * The fade-out timer affects audio only; the canvas effect continues until
+ * the user changes mode.
+ */
+async function _startCombinedMode() {
+  // Remove any dim overlay that music mode may have applied during a
+  // music → combined transition (music mode was not stopped, so _stopMusicMode
+  // was not called, so the overlay remains until we clear it here).
+  if (_musicModeDimApplied) {
+    babyMonitor?.classList.remove('baby-monitor--screen-dim');
+    _musicModeDimApplied = false;
+  }
+
+  // Start the canvas light effect (canvas already resized in startSoothingMode).
+  const lightEffect = state.combinedLightEffect ?? 'stars';
+  switch (lightEffect) {
+    case 'candle': _startCandleEffect(); break;
+    case 'water':  _startWaterEffect();  break;
+    default:       _startStarsEffect();  // 'stars' or fallback
+  }
+
+  // Sync the local combined light selector to the current state.
+  if (combinedLightSelect) combinedLightSelect.value = lightEffect;
+
+  // Start music playback.
+  try {
+    await _ensureAudioCtx();
+
+    if (!_musicPlayerAttached && _audioCtx && _audioGain) {
+      attachMusicPlayer(_audioCtx, _audioGain);
+      _musicPlayerAttached = true;
+    }
+
+    const track = state.currentTrack ?? BUILTIN_TRACKS[0];
+    state.currentTrack = track;
+    _mpPlayTrack(track);
+
+    console.log('[baby] Combined mode started — light:', lightEffect, 'track:', track, '(TASK-054)');
+  } catch (err) {
+    console.error('[baby] Failed to start combined mode audio:', err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Fade-out timer (TASK-014 / TASK-019)
 // ---------------------------------------------------------------------------
@@ -2276,7 +2339,8 @@ function startFadeTimer(seconds) {
 
   // Pre-schedule the exponential GainNode ramp via the Web Audio API clock.
   // This ensures frame-accurate fading without polling.
-  if (state.soothingMode === 'music' && _mpIsPlaying()) {
+  // Both music and combined modes play audio, so both need the fade scheduled.
+  if ((state.soothingMode === 'music' || state.soothingMode === 'combined') && _mpIsPlaying()) {
     _mpScheduleFadeOut(seconds);
   }
 
@@ -2289,7 +2353,21 @@ function startFadeTimer(seconds) {
 
     console.log('[baby] Fade timer expired — stopping soothing mode (TASK-014)');
 
-    if (state.soothingMode === 'music') {
+    if (state.soothingMode === 'combined') {
+      // TASK-054: Combined mode — fade timer applies to audio only.
+      // Stop music but keep the canvas light effect running.
+      _mpStopTrack();
+      const lightMode = state.combinedLightEffect ?? 'stars';
+      state.soothingMode = lightMode;
+      babyMonitor?.setAttribute('data-soothing-mode', lightMode);
+      // Update the mode button pressed state to reflect the light-only mode.
+      for (const btn of modeBtns) {
+        btn.setAttribute('aria-pressed', btn.dataset.mode === lightMode ? 'true' : 'false');
+      }
+      // Hide the combined light selector (no longer in combined mode).
+      if (combinedLightField) combinedLightField.hidden = true;
+      // The canvas animation loop is already running the correct light effect.
+    } else if (state.soothingMode === 'music') {
       // The GainNode ramp has already silenced the audio; just stop the source.
       _mpStopTrack();
       if (_musicModeDimApplied) {
@@ -2459,18 +2537,19 @@ function sendStateSnapshot() {
   if (!activeConnection?.dataChannel) return;
   sendMessage(activeConnection.dataChannel, MSG.STATE_SNAPSHOT, {
     deviceId,
-    soothingMode:    state.soothingMode,
-    currentTrack:    state.currentTrack,
-    musicVolume:     state.musicVolume,
-    fadeRemaining:   state.fadeRemaining,
-    fadeDuration:    state.fadeDuration,  // TASK-014: original timer duration
-    cameraFacing:    state.cameraFacing,
-    audioOnly:       state.audioOnly,
-    quality:         state.quality,
-    screenDim:       state.screenDim,     // TASK-028
-    videoPaused:     state.videoPaused,   // TASK-028
-    batteryLevel:    _batteryLevel,       // TASK-048: null until Battery API resolves
-    batteryCharging: _batteryCharging,    // TASK-048
+    soothingMode:        state.soothingMode,
+    combinedLightEffect: state.combinedLightEffect, // TASK-054
+    currentTrack:        state.currentTrack,
+    musicVolume:         state.musicVolume,
+    fadeRemaining:       state.fadeRemaining,
+    fadeDuration:        state.fadeDuration,  // TASK-014: original timer duration
+    cameraFacing:        state.cameraFacing,
+    audioOnly:           state.audioOnly,
+    quality:             state.quality,
+    screenDim:           state.screenDim,     // TASK-028
+    videoPaused:         state.videoPaused,   // TASK-028
+    batteryLevel:        _batteryLevel,       // TASK-048: null until Battery API resolves
+    batteryCharging:     _batteryCharging,    // TASK-048
   });
 }
 
@@ -3022,14 +3101,38 @@ function handleDataMessage(msg) {
       break;
 
     case MSG.SET_TRACK:
-      // Update track state and switch playback if music mode is active (TASK-019).
+      // Update track state and switch playback if music or combined mode is active (TASK-019, TASK-054).
       state.currentTrack = msg.value;
-      if (state.soothingMode === 'music' && msg.value) {
+      if ((state.soothingMode === 'music' || state.soothingMode === 'combined') && msg.value) {
         if (_musicPlayerAttached) {
           _mpSwitchTrack(msg.value);
         } else {
           // Music player not yet attached — start the mode fresh.
-          _startMusicMode();
+          if (state.soothingMode === 'music') {
+            _startMusicMode();
+          } else {
+            _startCombinedMode();
+          }
+        }
+      }
+      sendStateSnapshot();
+      break;
+
+    case MSG.SET_COMBINED_LIGHT: // TASK-054
+      // Change the light effect used in combined mode without stopping audio.
+      state.combinedLightEffect = msg.value;
+      saveSetting(SETTING_KEYS.DEFAULT_COMBINED_LIGHT, msg.value);
+      if (combinedLightSelect) combinedLightSelect.value = msg.value;
+      if (state.soothingMode === 'combined') {
+        // Restart only the canvas animation — music continues uninterrupted.
+        if (_animFrame !== null) {
+          cancelAnimationFrame(_animFrame);
+          _animFrame = null;
+        }
+        switch (msg.value) {
+          case 'candle': _startCandleEffect(); break;
+          case 'water':  _startWaterEffect();  break;
+          default:       _startStarsEffect();  // 'stars' or fallback
         }
       }
       sendStateSnapshot();
@@ -3489,6 +3592,34 @@ if (babyDefaultTrack) {
     saveSetting(SETTING_KEYS.DEFAULT_TRACK, track || null);
     // Update live state so that if music mode is active, the next play uses this track.
     state.currentTrack = track || null;
+  });
+}
+
+// TASK-054: Combined light effect selector — choose which canvas effect runs
+// alongside music in combined mode. Persists as DEFAULT_COMBINED_LIGHT.
+if (combinedLightSelect) {
+  combinedLightSelect.value = state.combinedLightEffect;
+  combinedLightSelect.addEventListener('change', () => {
+    const lightEffect = combinedLightSelect.value;
+    state.combinedLightEffect = lightEffect;
+    saveSetting(SETTING_KEYS.DEFAULT_COMBINED_LIGHT, lightEffect);
+    settings.defaultCombinedLight = lightEffect;
+    // If combined mode is currently active, restart the canvas with the new effect.
+    if (state.soothingMode === 'combined') {
+      if (_animFrame !== null) {
+        cancelAnimationFrame(_animFrame);
+        _animFrame = null;
+      }
+      switch (lightEffect) {
+        case 'candle': _startCandleEffect(); break;
+        case 'water':  _startWaterEffect();  break;
+        default:       _startStarsEffect();
+      }
+    }
+    // Notify the parent device of the change.
+    if (activeConnection?.dataChannel) {
+      sendMessage(activeConnection.dataChannel, MSG.SET_COMBINED_LIGHT, lightEffect);
+    }
   });
 }
 

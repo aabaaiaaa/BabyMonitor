@@ -269,6 +269,8 @@ const cpSpeakHint         = document.querySelector('.speak-hint'); // TASK-012
 const cpVolume            = document.getElementById('cp-volume');
 const cpMonitorVolume     = document.getElementById('cp-monitor-volume'); // TASK-011
 const cpTrackSelect       = document.getElementById('cp-track-select');
+const cpCombinedLight     = document.getElementById('cp-combined-light');      // TASK-054
+const cpCombinedLightRow  = document.getElementById('cp-combined-light-row');  // TASK-054
 const cpTimerBtns         = controlPanel?.querySelectorAll('.timer-btn') ?? [];
 const cpQualityBtns       = controlPanel?.querySelectorAll('.quality-btn') ?? [];
 const cpTimerCountdown    = document.getElementById('cp-timer-countdown');
@@ -2033,6 +2035,10 @@ function _syncControlPanelState(s) {
     b.setAttribute('aria-pressed', b.dataset.mode === s.soothingMode ? 'true' : 'false')
   );
 
+  // TASK-054: Show the combined light selector only when in combined mode.
+  if (cpCombinedLightRow) cpCombinedLightRow.hidden = (s.soothingMode !== 'combined');
+  if (cpCombinedLight && s.combinedLightEffect) cpCombinedLight.value = s.combinedLightEffect;
+
   // Music volume slider
   if (cpVolume && s.musicVolume != null) cpVolume.value = String(s.musicVolume);
 
@@ -2133,6 +2139,12 @@ cpMonitorVolume?.addEventListener('input', () => {
 cpTrackSelect?.addEventListener('change', () => {
   const conn = getActiveConn();
   if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_TRACK, cpTrackSelect.value);
+});
+
+// Combined light effect selector (TASK-054)
+cpCombinedLight?.addEventListener('change', () => {
+  const conn = getActiveConn();
+  if (conn?.dataChannel) sendMessage(conn.dataChannel, MSG.SET_COMBINED_LIGHT, cpCombinedLight.value);
 });
 
 // Timer buttons (TASK-014)

@@ -419,7 +419,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: When the Service Worker detects that a new version of the app has been deployed (the SW's `updatefound` and `statechange` events), show a non-blocking banner at the top of the screen: "A new version is available — tap to update." Tapping it calls `skipWaiting()` on the new Service Worker and reloads the page to activate it. The banner must not auto-reload without user consent, as an unexpected reload during an active monitoring session would be disruptive. If the user dismisses the banner, remind them again the next time the app is opened. Ensure the versioning strategy in the Service Worker cache name allows clean cache replacement on each deploy (e.g. include a build hash or version number in the cache name).
 
 ### TASK-054: Implement combined soothing light and music mode
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-014, TASK-015, TASK-016, TASK-017, TASK-018, TASK-019, TASK-038
 - **Description**: Extend the soothing mode selector on both the baby device (TASK-015) and the parent's remote control panel (TASK-025) to allow light and music to run simultaneously. Add a combined mode option alongside the existing single modes. When active, the chosen light effect renders fullscreen at reduced brightness while the selected audio track plays through the speakers. The screen brightness overlay used in music-only mode (near-black screen) must not be applied in combined mode — the light effect is the visual output. The fade-out timer (TASK-014) applies to the audio only in this mode; the light effect continues until the mode is changed. Audio ducking (TASK-038) operates normally in combined mode.

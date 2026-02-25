@@ -86,6 +86,7 @@ export const SETTING_KEYS = {
   ALERT_TONE_VOLUME:       'alerttonevolume',    // number 0-100 — alert chime volume (TASK-050)
   ALERT_TONE_MUTED:        'alerttonemuted',     // boolean — mute alert chimes (TASK-050)
   PWA_INSTALL_DISMISSED_AT: 'pwainstalldismissed', // number — Unix ms timestamp of last dismiss (TASK-052)
+  DEFAULT_COMBINED_LIGHT: 'defaultcombinedlight', // 'candle'|'water'|'stars' — light effect used in combined mode (TASK-054)
 };
 
 /**
@@ -103,8 +104,9 @@ export function getSettings() {
     preferredMethod:  lsGet(SETTING_KEYS.PREFERRED_METHOD, 'peerjs'),
     deviceId:         lsGet(SETTING_KEYS.DEVICE_ID, null),
     deviceRole:       lsGet(SETTING_KEYS.DEVICE_ROLE, null),
-    defaultMode:      lsGet(SETTING_KEYS.DEFAULT_MODE, 'off'),
-    defaultTrack:     lsGet(SETTING_KEYS.DEFAULT_TRACK, null),
+    defaultMode:           lsGet(SETTING_KEYS.DEFAULT_MODE, 'off'),
+    defaultTrack:          lsGet(SETTING_KEYS.DEFAULT_TRACK, null),
+    defaultCombinedLight:  lsGet(SETTING_KEYS.DEFAULT_COMBINED_LIGHT, 'stars'),
     fadePresets:      lsGet(SETTING_KEYS.FADE_PRESETS, [15, 30, 45, 60]),
     videoQuality:     lsGet(SETTING_KEYS.VIDEO_QUALITY, 'medium'),
     speakMode:        lsGet(SETTING_KEYS.SPEAK_MODE, 'ptt'),
