@@ -304,6 +304,65 @@ export function parentListenPeerJs(callbacks, expectedPeerId = null) {
 }
 
 // ---------------------------------------------------------------------------
+// Parent-to-parent data connection (TASK-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * First parent device: listen for a one-shot incoming data-only connection
+ * from a second parent device (TASK-058).
+ *
+ * Unlike parentListenPeerJs(), this expects a pure data connection (no media
+ * call) — the first parent sends device profile data and the connection is
+ * then closed.
+ *
+ * Incoming connections from known baby device IDs are skipped so this
+ * listener does not interfere with the normal baby-to-parent reconnect path.
+ *
+ * @param {object}   callbacks
+ * @param {(channel: {send: Function}) => void} callbacks.onOpen  — called with the normalised data channel when the connection opens
+ * @param {Function} [callbacks.onClose]  — called when the connection closes
+ * @param {Function} [callbacks.onError]  — called on connection error
+ * @param {string[]} [knownBabyIds]       — peer IDs of known baby devices to skip
+ * @returns {() => void} Cleanup/cancel function — call to stop listening
+ */
+export function listenForParentDataConn(callbacks, knownBabyIds = []) {
+  const peer = getPeerInstance();
+  if (!peer) return () => {};
+
+  const { onOpen, onClose, onError } = callbacks;
+  const babyIdSet = new Set(knownBabyIds);
+  let handled = false;
+
+  const handler = (conn) => {
+    // Skip connections from known baby devices — let parentListenPeerJs handle them.
+    if (babyIdSet.has(conn.peer)) return;
+    // Only handle the first incoming parent connection.
+    if (handled) return;
+    handled = true;
+
+    const channel = normalisePeerJsDataConn(conn);
+
+    conn.on('open', () => {
+      onOpen?.(channel);
+    });
+
+    conn.on('close', () => onClose?.());
+
+    conn.on('error', (err) => {
+      console.error('[webrtc] Parent-to-parent data connection error:', err);
+      onError?.(err);
+    });
+  };
+
+  peer.on('connection', handler);
+
+  // Return a cancel function that prevents future invocations of the handler.
+  return () => {
+    handled = true;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Offline QR path (TASK-007) — raw RTCPeerConnection
 // ---------------------------------------------------------------------------
 
@@ -733,6 +792,9 @@ export const MSG = {
 
   // PeerJS backup ID pool exchange (TASK-061)
   ID_POOL:            'idPool',        // value: string[] (backup peer IDs)
+
+  // Parent-to-parent handoff (TASK-058)
+  PARENT_HANDOFF:     'parentHandoff', // value: { devices: DeviceProfile[] }
 
   // Alert from baby to parent
   ALERT_BATTERY_LOW:  'alertBatteryLow',  // value: { level }

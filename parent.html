@@ -782,6 +782,27 @@
         <p class="settings-hint">This volume is separate from Monitor Volume and Music Volume.</p>
       </section>
 
+      <!-- Share with another parent device (TASK-058) -->
+      <section class="settings-group" aria-labelledby="share-parent-label">
+        <h3 id="share-parent-label">Share with Another Parent</h3>
+        <p class="settings-group__desc">
+          Let a second device access all your paired baby monitors. The second device
+          will be able to connect directly to each baby — this device does not need
+          to remain on afterwards. On the second device, open the app and choose
+          <strong>Connect to Existing Parent</strong>, then scan the QR code shown here.
+        </p>
+        <div class="settings-actions">
+          <button id="btn-share-parent" class="action-btn">Show sharing QR code</button>
+        </div>
+        <div id="share-parent-qr-wrap" class="share-parent-qr-wrap hidden" aria-label="Sharing QR code">
+          <div id="share-parent-qr-container" class="qr-container" aria-label="QR code for second parent device"></div>
+          <p class="settings-status" id="share-parent-status" aria-live="polite">
+            Scan this QR code on the second parent device.
+          </p>
+          <button id="btn-share-parent-done" class="action-btn action-btn--secondary">Done</button>
+        </div>
+      </section>
+
     </div>
   </section>
 

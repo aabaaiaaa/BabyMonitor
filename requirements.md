@@ -443,7 +443,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: When the parent opens the dashboard and no baby monitor devices are paired or connected, display a clear and welcoming empty state instead of a blank grid. The empty state should include: the app name and a brief one-line description, a prominent "Add baby monitor" button that starts the pairing flow (TASK-006), and a short reminder that both devices need to have the app open to pair. If there are saved device profiles (TASK-023) but none are currently connected, show the saved devices in a "Not connected" state with a "Connect" button for each that initiates a new pairing session using the saved device ID. This gives returning users a clear starting point without having to navigate settings.
 
 ### TASK-058: Implement second parent device pairing via first parent's device
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-009, TASK-022, TASK-023, TASK-048, TASK-060, TASK-061
 - **Description**: Allow a second parent device to connect to all paired baby monitors using the first parent's device as a broker, without needing to be physically near any baby device and without needing the first parent to remain connected afterwards.

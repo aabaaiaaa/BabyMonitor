@@ -40,6 +40,7 @@ import {
   offlineParentReceiveOffer,
   sendMessage, MSG,
   onPeerStatus, getPeerStatus, PEER_ERROR,
+  getLocalPeerId, listenForParentDataConn,
 } from './webrtc.js';
 import {
   renderQR, renderQRGrid,
@@ -265,6 +266,11 @@ const btnSafeSleep        = document.getElementById('btn-safe-sleep');
 
 // Microphone permission notice (TASK-055)
 const micPermNotice       = document.getElementById('mic-perm-notice');
+
+// Share with another parent (TASK-058)
+const shareParentWrap    = document.getElementById('share-parent-qr-wrap');
+const shareParentQrCont  = document.getElementById('share-parent-qr-container');
+const shareParentStatus  = document.getElementById('share-parent-status');
 
 // Control panel buttons / inputs
 const cpSpeakBtn          = document.getElementById('cp-speak-btn');
@@ -844,27 +850,270 @@ async function startOfflinePairing() {
   }
 }
 
-/** Method 3: add additional parent — scan existing parent's QR (TASK-006). */
+// ---------------------------------------------------------------------------
+// Share with another parent device (TASK-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * First parent: display a QR code of this device's PeerJS peer ID so a
+ * second parent can scan it and receive all saved device profiles.
+ *
+ * When the second parent connects via PeerJS (data-only), this function
+ * sends a PARENT_HANDOFF message containing all device profiles (including
+ * backup ID pools) and then closes the sharing session.  The second parent
+ * can then connect directly to each baby monitor without this device
+ * remaining connected.
+ */
+async function _startShareParentFlow() {
+  if (!shareParentWrap || !shareParentQrCont) return;
+
+  // Ensure the PeerJS peer is registered
+  let localId = getLocalPeerId();
+  if (!localId) {
+    try {
+      localId = await initPeer();
+    } catch (err) {
+      console.error('[parent] Could not init peer for sharing (TASK-058):', err);
+      if (shareParentStatus) {
+        shareParentStatus.textContent = 'Could not connect to pairing server. Try again.';
+        shareParentStatus.className = 'settings-status settings-status--error';
+      }
+      return;
+    }
+  }
+
+  // Display QR code of this parent's own peer ID
+  shareParentQrCont.innerHTML = '';
+  renderQR(shareParentQrCont, localId, { size: 200 });
+  shareParentWrap.classList.remove('hidden');
+  if (shareParentStatus) {
+    shareParentStatus.textContent = 'Scan this QR code on the second parent device.';
+    shareParentStatus.className = 'settings-status';
+  }
+
+  // Build the set of known baby device peer IDs to skip in the connection handler.
+  // Includes both currently active monitors and all saved device profiles.
+  const knownBabyIds = [
+    ...Array.from(monitors.keys()),
+    ...getDeviceProfiles().map(p => p.id),
+  ];
+
+  // Listen for an incoming data connection from the second parent
+  const cancelListen = listenForParentDataConn({
+    onOpen(channel) {
+      if (shareParentStatus) {
+        shareParentStatus.textContent = 'Second parent connected — sending device profiles…';
+        shareParentStatus.className = 'settings-status';
+      }
+      // Collect all saved device profiles (with backup ID pools)
+      const profiles = getDeviceProfiles();
+      sendMessage(channel, MSG.PARENT_HANDOFF, { devices: profiles });
+
+      const count = profiles.length;
+      if (shareParentStatus) {
+        shareParentStatus.textContent = count > 0
+          ? `Shared ${count} device profile${count !== 1 ? 's' : ''} successfully. The second device can now connect to your baby monitors.`
+          : 'No paired devices to share. Pair a baby monitor first, then share.';
+        shareParentStatus.className = 'settings-status settings-status--success';
+      }
+      console.log(`[parent] PARENT_HANDOFF sent — ${count} profile(s) (TASK-058)`);
+    },
+    onClose() {
+      console.log('[parent] Parent-to-parent sharing connection closed (TASK-058)');
+    },
+    onError(err) {
+      console.error('[parent] Share parent connection error (TASK-058):', err);
+      if (shareParentStatus) {
+        shareParentStatus.textContent = 'Connection error during sharing. Please try again.';
+        shareParentStatus.className = 'settings-status settings-status--error';
+      }
+    },
+  }, knownBabyIds);
+
+  // "Done" button — stop listening and hide the QR code
+  const doneBtn = document.getElementById('btn-share-parent-done');
+  doneBtn?.addEventListener('click', () => {
+    cancelListen();
+    shareParentWrap.classList.add('hidden');
+    shareParentQrCont.innerHTML = '';
+    if (shareParentStatus) {
+      shareParentStatus.textContent = '';
+      shareParentStatus.className = 'settings-status';
+    }
+  }, { once: true });
+}
+
+/** Method 3: add additional parent — scan existing parent's QR (TASK-058). */
 async function startAddParentFlow() {
-  // Implementation in TASK-006 / TASK-058
   const addScanVideo  = document.getElementById('add-parent-scan-video');
   const addScanStatus = document.getElementById('add-parent-scan-status');
 
   if (addScanStatus) addScanStatus.textContent = 'Point at the QR code on the first parent device.';
 
   try {
+    // Step 1: Scan the first parent's peer ID QR code
     const firstParentPeerId = await scanSingle(addScanVideo, {
       onProgress(msg) {
         if (addScanStatus) addScanStatus.textContent = msg;
       },
     });
 
-    if (addScanStatus) addScanStatus.textContent = 'Connecting…';
+    stopScanner();
+    if (addScanStatus) addScanStatus.textContent = 'Connecting to first parent device…';
 
-    // Full implementation in TASK-006
-    console.log('[parent] Add parent — first parent peer ID:', firstParentPeerId);
+    // Step 2: Ensure this device's PeerJS peer is registered
+    let peer = getPeer();
+    if (!peer) {
+      try {
+        await initPeer();
+        peer = getPeer();
+      } catch (err) {
+        console.error('[parent] Could not init peer for add-parent flow (TASK-058):', err);
+        if (addScanStatus) addScanStatus.textContent = 'Could not connect to pairing server. Please try again.';
+        return;
+      }
+    }
+
+    // Step 3: Open a data-only connection to the first parent and wait for
+    // the PARENT_HANDOFF message containing all device profiles.
+    const handoffPayload = await new Promise((resolve, reject) => {
+      const TIMEOUT_MS = 30_000;
+      const timer = setTimeout(
+        () => reject(new Error('Timed out waiting for device handoff from first parent')),
+        TIMEOUT_MS,
+      );
+
+      const dataConn = peer.connect(firstParentPeerId, { reliable: true });
+
+      dataConn.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+
+      dataConn.on('data', (raw) => {
+        try {
+          const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          if (msg.type === MSG.PARENT_HANDOFF) {
+            clearTimeout(timer);
+            // Close our side of the connection — we have what we need
+            try { dataConn.close(); } catch (_) { /* ignore */ }
+            resolve(msg.value);
+          }
+        } catch (e) {
+          console.warn('[parent] Could not parse parent handoff message (TASK-058):', e);
+        }
+      });
+    });
+
+    // Step 4: Persist each received device profile to localStorage
+    const { devices = [] } = handoffPayload;
+    for (const profile of devices) {
+      saveDeviceProfile(profile);
+    }
+
+    if (addScanStatus) {
+      addScanStatus.textContent = devices.length > 0
+        ? `Received ${devices.length} device profile${devices.length !== 1 ? 's' : ''}. Connecting to baby monitors…`
+        : 'No paired devices received. Ask the first parent to pair a baby monitor first.';
+    }
+
+    if (devices.length === 0) return;
+
+    // Step 5: Connect directly to each baby using its backup ID pool.
+    // The second parent never needs to talk to the first parent again.
+    let anyConnected = false;
+
+    for (const profile of devices) {
+      if (monitors.size >= MAX_MONITORS) break;
+      if (monitors.has(profile.id)) { anyConnected = true; continue; }
+
+      // Extract backup pool from the received profile
+      let poolIds   = [];
+      let poolIndex = 0;
+      if (profile.backupPoolJson) {
+        try {
+          const poolData = JSON.parse(profile.backupPoolJson);
+          if (Array.isArray(poolData.pool)) {
+            poolIds   = poolData.pool;
+            poolIndex = typeof poolData.index === 'number' ? poolData.index : 0;
+          }
+        } catch {
+          console.warn('[parent] Could not parse backupPoolJson for', profile.id, '(TASK-058)');
+        }
+      }
+
+      if (poolIds.length === 0) {
+        console.log('[parent] No backup pool for', profile.id, '— skipping (TASK-058)');
+        continue;
+      }
+
+      // Try each pool ID in order, starting from the last known index
+      const orderedIds = [...poolIds.slice(poolIndex), ...poolIds.slice(0, poolIndex)];
+
+      for (const targetId of orderedIds) {
+        if (monitors.has(profile.id)) { anyConnected = true; break; }
+
+        const connected = await new Promise((resolve) => {
+          const TIMEOUT_MS = 10_000;
+          let done = false;
+
+          const timer = setTimeout(() => {
+            if (!done) { done = true; resolve(false); }
+          }, TIMEOUT_MS);
+
+          parentListenPeerJs(
+            {
+              onReady(conn) {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                addMonitor(conn);
+                resolve(true);
+              },
+              onState(s) {
+                if ((s === 'disconnected' || s === 'failed') && !done) {
+                  done = true;
+                  clearTimeout(timer);
+                  resolve(false);
+                }
+              },
+              onMessage(msg) {
+                handleDataMessage(targetId, msg);
+              },
+            },
+            targetId,
+          );
+
+          // Trigger the baby to call us back by opening a data connection to it
+          try {
+            peer.connect(targetId, { reliable: true });
+          } catch (triggerErr) {
+            console.warn('[parent] Trigger connect failed for', targetId, triggerErr);
+            if (!done) { done = true; clearTimeout(timer); resolve(false); }
+          }
+        });
+
+        if (connected) {
+          anyConnected = true;
+          console.log('[parent] Connected to baby', profile.id, 'via pool ID', targetId, '(TASK-058)');
+          break;
+        }
+      }
+    }
+
+    if (anyConnected) {
+      showDashboard();
+    } else {
+      if (addScanStatus) {
+        addScanStatus.textContent =
+          'Could not reach baby monitors. Make sure the baby app is open and try again.';
+      }
+    }
   } catch (err) {
-    console.error('[parent] Add parent flow error:', err);
+    console.error('[parent] Add parent flow error (TASK-058):', err);
+    if (addScanStatus) {
+      addScanStatus.textContent = `Connection failed: ${err.message ?? 'Unknown error'}. Please try again.`;
+    }
   }
 }
 
@@ -4401,6 +4650,13 @@ btnDashboardSettings?.addEventListener('click', () => {
 document.getElementById('settings-back')?.addEventListener('click', () => {
   settingsScreen?.classList.add('hidden');
   parentDashboard?.classList.remove('hidden');
+  // Hide the share-parent QR when leaving settings (TASK-058)
+  if (shareParentWrap) shareParentWrap.classList.add('hidden');
+  if (shareParentQrCont) shareParentQrCont.innerHTML = '';
+  if (shareParentStatus) {
+    shareParentStatus.textContent = '';
+    shareParentStatus.className = 'settings-status';
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -4632,6 +4888,11 @@ document.getElementById('btn-clear-peerjs')?.addEventListener('click', () => {
     statusEl.textContent = 'Custom PeerJS server cleared. Using public PeerJS server.';
     statusEl.className   = 'settings-status';
   }
+});
+
+// Wire up share-parent button (TASK-058)
+document.getElementById('btn-share-parent')?.addEventListener('click', () => {
+  _startShareParentFlow();
 });
 
 // Initialise speak button label on load (TASK-012)
