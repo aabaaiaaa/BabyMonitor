@@ -411,6 +411,100 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   PWA install prompt banner (TASK-052)
+   Shown after onboarding and first connection to encourage app installation.
+   Positioned above the bg-banner (higher z-index, same bottom anchor).
+   On iOS Chrome, a manual install instruction is displayed without the
+   "Install" button since beforeinstallprompt is not available on iOS.
+   -------------------------------------------------------------------------- */
+.pwa-install-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: calc(var(--z-toast) + 1); /* one layer above bg-banner */
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: #0f4c75;
+  border-top: 1px solid #1a85d6;
+  color: #e0f2fe;
+  font-size: var(--font-size-sm);
+  animation: bg-banner-slide-in var(--transition-base) both;
+}
+
+.dark-mode .pwa-install-banner {
+  background: rgba(15, 76, 117, 0.92);
+  border-top-color: #38bdf8;
+  color: #bae6fd;
+}
+
+.pwa-install-banner__icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pwa-install-banner__msg {
+  flex: 1;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.pwa-install-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.pwa-install-banner__install-btn {
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast);
+}
+
+.pwa-install-banner__install-btn:hover,
+.pwa-install-banner__install-btn:focus-visible {
+  background: var(--color-primary-dark);
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.pwa-install-banner__not-now-btn {
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-sm);
+  background: transparent;
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0.85;
+  transition: opacity var(--transition-fast), border-color var(--transition-fast);
+}
+
+.pwa-install-banner__not-now-btn:hover,
+.pwa-install-banner__not-now-btn:focus-visible {
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.7);
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
    Icon buttons and text buttons
    -------------------------------------------------------------------------- */
 .icon-btn {

@@ -47,6 +47,7 @@ import {
 } from './qr.js';
 import { showCompatWarnings } from './browser-compat.js';
 import { showNotificationPermissionScreen } from './notifications.js';
+import { maybeShowPwaInstallBanner } from './pwa-install.js';
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -334,6 +335,9 @@ const bgBanner            = document.getElementById('bg-banner');
 const bgBannerPwa         = document.getElementById('bg-banner-pwa');
 const bgBannerInstall     = document.getElementById('bg-banner-install');
 const bgBannerDismiss     = document.getElementById('bg-banner-dismiss');
+
+// PWA install prompt (TASK-052)
+const pwaInstallBanner    = document.getElementById('pwa-install-banner');
 
 // ---------------------------------------------------------------------------
 // Initialisation
@@ -980,6 +984,10 @@ function addMonitor(conn) {
     backupPoolIndex:  _restoredIndex, // TASK-061: last known pool index
   };
 
+  // Show PWA install prompt on first connection after onboarding (TASK-052).
+  // Check monitors.size before set() so we know this is the first monitor.
+  const _isFirstMonitor = monitors.size === 0;
+
   monitors.set(deviceId, entry);
   monitorGrid?.setAttribute('data-count', String(monitors.size));
   refreshGridEmpty();
@@ -1000,6 +1008,11 @@ function addMonitor(conn) {
   // TASK-031: Show the dashboard feature tour after the first baby connects
   // during the first-run onboarding flow.
   _maybeShowTour();
+
+  // TASK-052: Show PWA install prompt after the first successful connection.
+  if (_isFirstMonitor) {
+    maybeShowPwaInstallBanner(pwaInstallBanner);
+  }
 }
 
 /**

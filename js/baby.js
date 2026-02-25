@@ -42,6 +42,7 @@ import {
   scanAuto, scanSingle, scanMulti, stopScanner,
 } from './qr.js';
 import { showCompatWarnings } from './browser-compat.js';
+import { maybeShowPwaInstallBanner } from './pwa-install.js';
 import {
   attachMusicPlayer,
   playTrack as _mpPlayTrack,
@@ -355,6 +356,9 @@ const bgBanner            = document.getElementById('bg-banner');
 const bgBannerPwa         = document.getElementById('bg-banner-pwa');
 const bgBannerInstall     = document.getElementById('bg-banner-install');
 const bgBannerDismiss     = document.getElementById('bg-banner-dismiss');
+
+// PWA install prompt (TASK-052)
+const pwaInstallBanner    = document.getElementById('pwa-install-banner');
 
 // ---------------------------------------------------------------------------
 // Backup PeerJS ID pool (TASK-061)
@@ -1531,6 +1535,8 @@ function startMonitor(conn) {
   if (!_soothingInitialized) {
     _soothingInitialized = true;
     startSoothingMode(state.soothingMode);
+    // Show PWA install prompt on first connection after onboarding (TASK-052).
+    maybeShowPwaInstallBanner(pwaInstallBanner);
   }
   setupStatusFade();
   _setupSpeakThrough(conn); // TASK-012

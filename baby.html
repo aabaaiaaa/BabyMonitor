@@ -164,6 +164,21 @@
     <button id="bg-banner-dismiss" class="bg-banner__dismiss" aria-label="Dismiss">✕</button>
   </div>
 
+  <!-- PWA install prompt (TASK-052): shown after onboarding and first connection.
+       Encourages the user to install the app for better background performance.
+       Hidden by default; revealed by js/pwa-install.js when conditions are met.
+       On iOS Chrome, shows a manual "Share → Add to Home Screen" instruction. -->
+  <div id="pwa-install-banner" class="pwa-install-banner hidden" role="status" aria-live="polite">
+    <span class="pwa-install-banner__icon" aria-hidden="true">📲</span>
+    <p class="pwa-install-banner__msg">
+      Install this app for better background performance and battery life.
+    </p>
+    <div class="pwa-install-banner__actions">
+      <button id="pwa-install-btn" class="pwa-install-banner__install-btn">Install</button>
+      <button id="pwa-install-not-now" class="pwa-install-banner__not-now-btn">Not now</button>
+    </div>
+  </div>
+
   <!-- Active baby monitor view: shown once connected (TASK-015) -->
   <main id="baby-monitor" class="baby-monitor hidden" aria-label="Baby monitor active">
 
