@@ -1347,6 +1347,8 @@ function createMonitorPanel(deviceId, label, conn) {
             data-level="0">🚶</span>
       <button class="monitor-panel__controls-btn" aria-label="Open controls for ${escapeHtml(label)}"
               title="Controls">⚙️</button>
+      <button class="monitor-panel__disconnect-btn" aria-label="Disconnect ${escapeHtml(label)}"
+              title="Disconnect">✕</button>
     </div>
   `;
 
@@ -1383,6 +1385,19 @@ function createMonitorPanel(deviceId, label, conn) {
     ?.addEventListener('click', (e) => {
       e.stopPropagation();
       openControlPanel(deviceId);
+    });
+
+  // TASK-042: Per-panel disconnect button — gracefully disconnect this device
+  // without opening the control panel.  Sends MSG.DISCONNECT so the baby device
+  // shows its "Disconnected" screen, then removes this panel and frees resources.
+  panel.querySelector('.monitor-panel__disconnect-btn')
+    ?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const entry = monitors.get(deviceId);
+      if (entry?.conn?.dataChannel) {
+        sendMessage(entry.conn.dataChannel, MSG.DISCONNECT);
+      }
+      removeMonitor(deviceId);
     });
 
   return panel;

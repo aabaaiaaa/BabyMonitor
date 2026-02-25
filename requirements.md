@@ -280,7 +280,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Add a camera flip button to the baby monitor setup screen (and accessible from the unlocked settings overlay). Tapping it switches between front-facing (`facingMode: 'user'`) and rear-facing (`facingMode: 'environment'`) cameras by stopping the current track and calling `getUserMedia` again with the new constraint. The active camera choice is saved in `localStorage`. Also expose a "Switch camera" command via the data channel so the parent can flip the camera remotely from the parent dashboard. Note: no camera direction is assumed — the parent chooses whichever camera provides the best view for their placement of the device.
 
 ### TASK-042: Implement per-device disconnect and session end flow
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-022, TASK-009
 - **Description**: On the parent dashboard, add a disconnect button (e.g. a stop/X icon) to each baby monitor panel. When tapped, send a graceful disconnect message via the data channel, then close the `RTCPeerConnection` for that device and remove its panel from the dashboard. If multiple baby monitors are connected, the remaining ones are unaffected. On the baby monitor side, when a disconnect is received (or the connection closes unexpectedly), display a "Disconnected" screen with options to reconnect (re-run the pairing flow) or return to the home screen. Ensure all media tracks and Web Audio nodes for the disconnected device are properly stopped and released to free resources.

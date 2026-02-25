@@ -557,6 +557,26 @@
   background: rgba(0, 0, 0, 0.06);
 }
 
+/* Panel per-device disconnect button (TASK-042) */
+.monitor-panel__disconnect-btn {
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  color: var(--color-danger);
+  flex-shrink: 0;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.monitor-panel__disconnect-btn:hover,
+.monitor-panel__disconnect-btn:focus-visible {
+  color: var(--color-danger);
+  background: rgba(220, 53, 69, 0.1);
+}
+
 /* --------------------------------------------------------------------------
    Control panel (TASK-025) — slide-out drawer from the right
    -------------------------------------------------------------------------- */
