@@ -192,10 +192,31 @@
   animation: fade-in var(--transition-base) both;
 }
 
+/* Battery alert pulses its left-border colour to draw attention (TASK-036).
+   The animation runs 3 times then settles; combined with the fade-in defined
+   on .alert-banner so both animations run together. */
+@keyframes battery-alert-pulse {
+  0%, 100% { border-left-color: #dc2626; }
+  50%       { border-left-color: #fca5a5; }
+}
+
 .alert-banner--battery {
   background: #fef2f2;
   color: #991b1b;
-  border-left: 4px solid #dc2626;
+  border-left: 6px solid #dc2626; /* wider border for highest-priority emphasis */
+  font-weight: 700;
+  animation: fade-in var(--transition-base) both,
+             battery-alert-pulse 0.8s ease-in-out 3;
+}
+
+.dark-mode .alert-banner--battery {
+  animation: fade-in var(--transition-base) both,
+             battery-alert-pulse-dark 0.8s ease-in-out 3;
+}
+
+@keyframes battery-alert-pulse-dark {
+  0%, 100% { border-left-color: #ef4444; }
+  50%       { border-left-color: #7f1d1d; }
 }
 
 .alert-banner--noise {

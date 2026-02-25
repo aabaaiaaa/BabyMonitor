@@ -2665,6 +2665,178 @@ function handleDataMessage(deviceId, msg) {
 const activeAlerts = new Set();
 
 // ---------------------------------------------------------------------------
+// Alert tone queue (TASK-036)
+// ---------------------------------------------------------------------------
+//
+// All three alert types (battery, movement, noise) play a short audio tone via
+// the Web Audio API.  Tones are queued rather than overlapped so simultaneous
+// alerts do not produce a cacophony.  Battery tones have the highest priority
+// (0) and are inserted at the head of the queue; movement (1) and noise (2)
+// are appended in arrival order behind any pending higher-priority tones.
+//
+// A dedicated AudioContext (_alertToneCtx) is used so the monitoring audio
+// graphs (one per device, stored in each monitor entry) are not affected.
+// ---------------------------------------------------------------------------
+
+/** @type {AudioContext|null} Shared AudioContext used exclusively for alert tones. */
+let _alertToneCtx = null;
+
+/**
+ * Pending alert tones, in the order they will be played.
+ * Each entry: { priority: number, pulses: Array<[freq, durMs]> }
+ * @type {Array<{priority: number, pulses: Array<[number, number]>}>}
+ */
+const _alertToneQueue = [];
+
+/** @type {boolean} True while an alert tone is currently playing. */
+let _alertTonePlaying = false;
+
+/**
+ * Tone definitions per alert type.
+ *   priority — lower number = played first when multiple tones are queued.
+ *   pulses   — array of [frequencyHz, durationMs] pairs forming the tone pattern.
+ */
+const ALERT_TONE_CONFIG = {
+  /** Two-pulse descending pattern — unmistakably urgent (TASK-036). */
+  battery:  { priority: 0, pulses: [[880, 120], [660, 120], [880, 120], [660, 180]] },
+  /** Single mid-range beep for movement detection (TASK-027). */
+  movement: { priority: 1, pulses: [[660, 200]] },
+  /** Single soft beep for noise level alert (TASK-024). */
+  noise:    { priority: 2, pulses: [[440, 200]] },
+};
+
+/** Return (and lazily create) the shared alert-tone AudioContext. */
+function _getAlertToneCtx() {
+  if (!_alertToneCtx || _alertToneCtx.state === 'closed') {
+    _alertToneCtx = new AudioContext();
+  }
+  if (_alertToneCtx.state === 'suspended') {
+    _alertToneCtx.resume().catch(() => {});
+  }
+  return _alertToneCtx;
+}
+
+/**
+ * Play a single oscillator pulse at the given frequency and duration.
+ * A short linear gain ramp at each end prevents audible click artefacts.
+ * @param {AudioContext} ctx
+ * @param {number} freq   — frequency in Hz
+ * @param {number} durMs  — duration in milliseconds
+ * @returns {Promise<void>} resolves when the pulse has finished playing
+ */
+function _playAlertPulse(ctx, freq, durMs) {
+  return new Promise(resolve => {
+    try {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+
+      // Fade in over 10 ms, fade out over the last 10 ms to avoid clicks.
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + 0.01);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + durMs / 1000);
+
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + durMs / 1000);
+      osc.onended = resolve;
+    } catch (err) {
+      console.warn('[parent] Failed to play alert pulse:', err);
+      resolve();
+    }
+  });
+}
+
+/**
+ * Internal: dequeue and play the next alert tone.
+ * Recurses until the queue is empty, with a short pause between tones.
+ */
+async function _playNextAlertTone() {
+  if (_alertToneQueue.length === 0) {
+    _alertTonePlaying = false;
+    return;
+  }
+  _alertTonePlaying = true;
+
+  const { pulses } = _alertToneQueue.shift();
+  let ctx;
+  try {
+    ctx = _getAlertToneCtx();
+  } catch (err) {
+    console.warn('[parent] Alert AudioContext unavailable:', err);
+    _alertTonePlaying = false;
+    return;
+  }
+
+  const gapBetweenPulsesMs = 60;
+  for (let i = 0; i < pulses.length; i++) {
+    const [freq, durMs] = pulses[i];
+    await _playAlertPulse(ctx, freq, durMs);
+    if (i < pulses.length - 1) {
+      await new Promise(r => setTimeout(r, gapBetweenPulsesMs));
+    }
+  }
+
+  // Pause between successive tones in the queue.
+  await new Promise(r => setTimeout(r, 150));
+  _playNextAlertTone();
+}
+
+/**
+ * Enqueue an alert tone of the given type and start playback if idle.
+ * Tones are inserted in ascending priority order so a battery alert
+ * always plays before any pending movement or noise tones.
+ * @param {'battery'|'movement'|'noise'} type
+ */
+function _enqueueAlertTone(type) {
+  const config = ALERT_TONE_CONFIG[type];
+  if (!config) return;
+
+  const entry = { ...config };
+  // Find the first queued tone with a lower priority (higher number) and
+  // insert before it so higher-priority tones play first.
+  const idx = _alertToneQueue.findIndex(t => t.priority > config.priority);
+  if (idx === -1) {
+    _alertToneQueue.push(entry);
+  } else {
+    _alertToneQueue.splice(idx, 0, entry);
+  }
+
+  if (!_alertTonePlaying) _playNextAlertTone();
+}
+
+/**
+ * Insert an alert banner into the alert-banners container with priority ordering.
+ *
+ * Battery banners always appear at the very top of the container so they are
+ * the first thing the user sees.  Non-battery banners are inserted immediately
+ * after the last battery banner so battery alerts remain on top regardless of
+ * when movement or noise alerts fire.
+ *
+ * @param {HTMLElement} banner  — the banner element to insert
+ * @param {'battery'|'movement'|'noise'|string} type — alert type
+ */
+function _insertAlertBanner(banner, type) {
+  if (!alertBanners) return;
+  if (type === 'battery') {
+    // Battery always goes to the absolute top.
+    alertBanners.prepend(banner);
+  } else {
+    // Non-battery banners go after any existing battery banners.
+    const batteryBanners = alertBanners.querySelectorAll('.alert-banner--battery');
+    if (batteryBanners.length > 0) {
+      const last = batteryBanners[batteryBanners.length - 1];
+      last.insertAdjacentElement('afterend', banner);
+    } else {
+      alertBanners.prepend(banner);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Movement alert snooze state (TASK-027)
 // ---------------------------------------------------------------------------
 
@@ -2800,16 +2972,23 @@ function showBatteryAlert(deviceId, level, label) {
   const banner = document.createElement('div');
   banner.className = 'alert-banner alert-banner--battery';
   banner.setAttribute('role', 'alert');
+  // data-alert-key allows the banner to be targeted for removal/replacement.
+  banner.dataset.alertKey = key;
   banner.innerHTML = `
     🔋 <strong>${escapeHtml(label)}</strong>: Battery low (${level}%)
-    <button class="alert-banner__dismiss" aria-label="Dismiss battery alert">✕</button>
+    <button class="alert-banner__dismiss" aria-label="Dismiss battery alert for ${escapeHtml(label)}">✕</button>
   `;
   banner.querySelector('.alert-banner__dismiss')?.addEventListener('click', () => {
     banner.remove();
     activeAlerts.delete(key);
   });
 
-  alertBanners?.prepend(banner);
+  // TASK-036: battery banners always appear above movement/noise banners.
+  _insertAlertBanner(banner, 'battery');
+
+  // TASK-036: play the high-priority battery alert tone.  If a movement or
+  // noise tone is already queued, the battery tone is inserted before it.
+  _enqueueAlertTone('battery');
 
   // Background notification (TASK-029): delivered when the tab is hidden.
   _sendBackgroundNotification(
@@ -2861,7 +3040,11 @@ function showMovementAlert(deviceId, label) {
     activeAlerts.delete(key);
   });
 
-  alertBanners?.prepend(banner);
+  // TASK-036: insert after battery banners so battery alerts stay on top.
+  _insertAlertBanner(banner, 'movement');
+
+  // TASK-036: enqueue movement tone behind any pending battery tones.
+  _enqueueAlertTone('movement');
 
   // Background notification (TASK-029): delivered when the tab is hidden.
   _sendBackgroundNotification(
@@ -2905,7 +3088,11 @@ function showNoiseAlert(deviceId, label) {
     activeAlerts.delete(key);
   });
 
-  alertBanners?.prepend(banner);
+  // TASK-036: insert after battery banners so battery alerts stay on top.
+  _insertAlertBanner(banner, 'noise');
+
+  // TASK-036: enqueue noise tone behind any pending battery or movement tones.
+  _enqueueAlertTone('noise');
 
   // Background notification (TASK-029): delivered when the tab is hidden.
   _sendBackgroundNotification(
