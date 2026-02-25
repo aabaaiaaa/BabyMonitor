@@ -218,6 +218,10 @@ const cpVideoPaused       = document.getElementById('cp-video-paused');   // pau
 const cpScreenDim         = document.getElementById('cp-screen-dim');     // dim baby display
 const cpPowerSaver        = document.getElementById('cp-power-saver');    // reduced analysis on parent
 
+// Battery alert threshold (TASK-032)
+const cpBatteryThreshold      = document.getElementById('cp-battery-threshold');
+const cpBatteryThresholdValue = document.getElementById('cp-battery-threshold-value');
+
 // Device rename controls (TASK-023)
 const cpRenameBtn         = document.getElementById('cp-rename-btn');
 const cpRenameForm        = document.getElementById('cp-rename-form');
@@ -1588,6 +1592,14 @@ function openControlPanel(deviceId) {
   // Populate motion threshold from profile (TASK-026)
   if (cpMotionThreshold) cpMotionThreshold.value = String(entry.motionThreshold);
 
+  // Populate battery alert threshold from device profile (TASK-032)
+  const _openProfile = getDeviceProfile(deviceId);
+  const _battThr = _openProfile?.batteryThreshold ?? 15;
+  if (cpBatteryThreshold) {
+    cpBatteryThreshold.value = String(_battThr);
+    if (cpBatteryThresholdValue) cpBatteryThresholdValue.value = String(_battThr);
+  }
+
   // Sync snooze button state for this device (TASK-027)
   _syncSnoozeUI(deviceId);
 
@@ -2189,6 +2201,19 @@ cpMotionThreshold?.addEventListener('change', () => {
     const profile = getDeviceProfile(controlPanelDeviceId);
     if (profile) saveDeviceProfile({ ...profile, motionThreshold: entry.motionThreshold });
   }
+});
+
+// Battery alert threshold (TASK-032): live-update the output label on input,
+// then persist to device profile on change.
+cpBatteryThreshold?.addEventListener('input', () => {
+  if (cpBatteryThresholdValue) cpBatteryThresholdValue.value = cpBatteryThreshold.value;
+});
+
+cpBatteryThreshold?.addEventListener('change', () => {
+  if (!controlPanelDeviceId) return;
+  const newThr = Number(cpBatteryThreshold.value);
+  const profile = getDeviceProfile(controlPanelDeviceId);
+  if (profile) saveDeviceProfile({ ...profile, batteryThreshold: newThr });
 });
 
 // ---------------------------------------------------------------------------
@@ -2886,7 +2911,42 @@ function _syncSettingsScreen() {
 
   // Saved devices list (TASK-023)
   _renderSavedDevices();
+
+  // Global defaults — TASK-032
+  const defaultModeEl   = document.getElementById('settings-default-mode');
+  const defaultTrackEl  = document.getElementById('settings-default-track');
+  const videoQualityEl  = document.getElementById('settings-video-quality');
+  const connMethodEl    = document.getElementById('settings-conn-method');
+  if (defaultModeEl)  defaultModeEl.value  = settings.defaultMode    ?? 'off';
+  if (defaultTrackEl) defaultTrackEl.value = settings.defaultTrack   ?? '';
+  if (videoQualityEl) videoQualityEl.value = settings.videoQuality   ?? 'medium';
+  if (connMethodEl)   connMethodEl.value   = settings.preferredMethod ?? 'peerjs';
 }
+
+// Wire up global defaults selects (TASK-032)
+document.getElementById('settings-default-mode')?.addEventListener('change', (e) => {
+  const value = /** @type {HTMLSelectElement} */ (e.target).value;
+  settings.defaultMode = value;
+  saveSetting(SETTING_KEYS.DEFAULT_MODE, value);
+});
+
+document.getElementById('settings-default-track')?.addEventListener('change', (e) => {
+  const value = /** @type {HTMLSelectElement} */ (e.target).value;
+  settings.defaultTrack = value || null;
+  saveSetting(SETTING_KEYS.DEFAULT_TRACK, value || null);
+});
+
+document.getElementById('settings-video-quality')?.addEventListener('change', (e) => {
+  const value = /** @type {HTMLSelectElement} */ (e.target).value;
+  settings.videoQuality = value;
+  saveSetting(SETTING_KEYS.VIDEO_QUALITY, value);
+});
+
+document.getElementById('settings-conn-method')?.addEventListener('change', (e) => {
+  const value = /** @type {HTMLSelectElement} */ (e.target).value;
+  settings.preferredMethod = value;
+  saveSetting(SETTING_KEYS.PREFERRED_METHOD, value);
+});
 
 // Wire up speak mode radio buttons
 document.getElementById('speak-mode-ptt')?.addEventListener('change', () => {

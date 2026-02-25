@@ -399,6 +399,17 @@
                aria-label="Noise alert sensitivity" />
       </section>
 
+      <!-- Low battery alert threshold (TASK-032) -->
+      <section class="control-group" aria-labelledby="cp-battery-threshold-label">
+        <h3 id="cp-battery-threshold-label">Low Battery Alert</h3>
+        <label class="settings-field__label" for="cp-battery-threshold">
+          Alert below <output id="cp-battery-threshold-value">15</output>%
+        </label>
+        <input type="range" id="cp-battery-threshold" min="5" max="50" value="15"
+               aria-label="Low battery alert threshold (percent)" />
+        <p class="settings-hint">Alert when the baby device battery drops below this level.</p>
+      </section>
+
       <!-- Motion sensitivity and snooze (TASK-026, TASK-027) -->
       <section class="control-group" aria-labelledby="cp-motion-label">
         <h3 id="cp-motion-label">Movement Sensitivity</h3>
@@ -456,6 +467,57 @@
     <div class="settings-screen__inner">
       <button class="back-btn" id="settings-back" aria-label="Back">← Back</button>
       <h2>Settings</h2>
+
+      <!-- Global defaults (TASK-032) -->
+      <section class="settings-group" aria-labelledby="global-defaults-label">
+        <h3 id="global-defaults-label">Default Preferences</h3>
+        <p class="settings-group__desc">
+          These defaults are applied when a new baby monitor connects. Per-device
+          thresholds are stored in each device's saved profile.
+        </p>
+
+        <div class="settings-field">
+          <label class="settings-field__label" for="settings-default-mode">Default soothing mode</label>
+          <select id="settings-default-mode" class="settings-field__input"
+                  aria-label="Default soothing mode on connection">
+            <option value="off">Off</option>
+            <option value="candle">Candle</option>
+            <option value="water">Water</option>
+            <option value="stars">Stars</option>
+            <option value="music">Music</option>
+          </select>
+        </div>
+
+        <div class="settings-field">
+          <label class="settings-field__label" for="settings-default-track">Default music track</label>
+          <select id="settings-default-track" class="settings-field__input"
+                  aria-label="Default music track">
+            <option value="">— None —</option>
+            <option value="white-noise">White Noise</option>
+            <option value="lullaby">Lullaby</option>
+            <option value="rain">Rain</option>
+          </select>
+        </div>
+
+        <div class="settings-field">
+          <label class="settings-field__label" for="settings-video-quality">Default video quality</label>
+          <select id="settings-video-quality" class="settings-field__input"
+                  aria-label="Default video quality">
+            <option value="low">Low (320×240 @ 10 fps — best battery)</option>
+            <option value="medium">Medium (640×480 @ 15 fps — balanced)</option>
+            <option value="high">High (1280×720 @ 24 fps — highest quality)</option>
+          </select>
+        </div>
+
+        <div class="settings-field">
+          <label class="settings-field__label" for="settings-conn-method">Preferred connection method</label>
+          <select id="settings-conn-method" class="settings-field__input"
+                  aria-label="Preferred connection method">
+            <option value="peerjs">Quick Pair (recommended — requires internet)</option>
+            <option value="offline">Offline QR Pair (local Wi-Fi, no internet)</option>
+          </select>
+        </div>
+      </section>
 
       <!-- Speak-through mode (TASK-012) -->
       <section class="settings-group" aria-labelledby="speak-mode-label">

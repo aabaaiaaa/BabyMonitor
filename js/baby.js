@@ -323,6 +323,7 @@ const screenDimToggle     = document.getElementById('screen-dim-toggle');   // T
 const orientationSelect   = document.getElementById('orientation-select');
 const disconnectBtn       = document.getElementById('btn-disconnect');
 const settingsCloseBtn    = document.getElementById('baby-settings-close');
+const babyDefaultTrack    = document.getElementById('baby-default-track');  // TASK-032
 
 // Disconnected screen
 const reconnectStatus      = document.getElementById('reconnect-status');
@@ -1489,6 +1490,9 @@ function startMonitor(conn) {
   // Sync settings UI to current state so toggles reflect reality when overlay opens.
   if (audioOnlyToggle) audioOnlyToggle.checked = state.audioOnly;
   if (screenDimToggle) screenDimToggle.checked = state.screenDim;
+  // TASK-032: sync orientation select and default track from saved settings.
+  if (orientationSelect) orientationSelect.value = settings.orientation ?? 'auto';
+  if (babyDefaultTrack) babyDefaultTrack.value = settings.defaultTrack ?? '';
   startBatteryMonitoring(); // TASK-020
   sendStateSnapshot();     // TASK-048
   // TASK-051: Only start soothing on the first connection.  On reconnection the
@@ -3108,6 +3112,9 @@ for (const btn of modeBtns) {
   btn.addEventListener('click', () => {
     const mode = btn.dataset.mode;
     startSoothingMode(mode);
+    // TASK-032: persist mode selection as default for future sessions.
+    saveSetting(SETTING_KEYS.DEFAULT_MODE, mode);
+    settings.defaultMode = mode;
     if (activeConnection?.dataChannel) {
       sendMessage(activeConnection.dataChannel, MSG.SET_MODE, mode);
     }
@@ -3136,6 +3143,19 @@ orientationSelect?.addEventListener('change', () => {
     screen.orientation.lock(value).catch(() => {});
   }
 });
+
+// TASK-032: Default music track selector — persists to DEFAULT_TRACK in localStorage.
+// Pre-populate from stored setting so the selector reflects the current default.
+if (babyDefaultTrack) {
+  babyDefaultTrack.value = settings.defaultTrack ?? '';
+  babyDefaultTrack.addEventListener('change', () => {
+    const track = babyDefaultTrack.value;
+    settings.defaultTrack = track || null;
+    saveSetting(SETTING_KEYS.DEFAULT_TRACK, track || null);
+    // Update live state so that if music mode is active, the next play uses this track.
+    state.currentTrack = track || null;
+  });
+}
 
 // Small settings icon button — opens the settings overlay directly (TASK-015).
 // Provides a visible (but minimal) access point in addition to triple-tap.

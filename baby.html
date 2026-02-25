@@ -222,9 +222,21 @@
             <button class="mode-btn" data-mode="music" aria-pressed="false">🎵 Music</button>
             <button class="mode-btn" data-mode="off" aria-pressed="true">Off</button>
           </div>
+          <!-- TASK-032: Default track selector — saved as DEFAULT_TRACK in localStorage -->
+          <div class="settings-field settings-field--inline" id="default-track-field">
+            <label class="settings-field__label" for="baby-default-track">Default music track</label>
+            <select id="baby-default-track" class="settings-field__input"
+                    aria-label="Default music track when music mode starts">
+              <option value="">— None —</option>
+              <option value="white-noise">White Noise</option>
+              <option value="lullaby">Lullaby</option>
+              <option value="rain">Rain</option>
+            </select>
+          </div>
           <!-- TASK-051: Note about soothing continuing during disconnection -->
           <p class="settings-hint">
             Soothing modes continue even if the connection to the parent device is lost or interrupted.
+            The selected mode is saved as the default for next startup.
           </p>
           <!-- TASK-051: iOS Wake Lock limitation — screen sleep stops canvas effects -->
           <p class="settings-hint settings-hint--warning" id="ios-soothing-warning" hidden>
