@@ -229,10 +229,29 @@
     <!-- Baby monitor panels grid (TASK-021, TASK-022) -->
     <div id="monitor-grid" class="monitor-grid" role="list" aria-label="Connected baby monitors">
       <!-- Monitor panels inserted dynamically by js/parent.js -->
-      <!-- Empty-state placeholder -->
+
+      <!-- Empty-state placeholder (TASK-057): shown when no monitors are connected -->
       <div id="monitor-grid-empty" class="monitor-grid__empty">
-        <p>No baby monitors connected.</p>
-        <button id="btn-start-pairing" class="action-btn">Connect Baby Monitor</button>
+        <div class="empty-state">
+          <div class="empty-state__icon" aria-hidden="true">👶</div>
+          <h2 class="empty-state__title">Baby Monitor</h2>
+          <p class="empty-state__desc">Peer-to-peer video and audio monitoring — no cloud required.</p>
+          <button id="btn-start-pairing" class="action-btn empty-state__add-btn">
+            Add baby monitor
+          </button>
+          <p class="empty-state__hint">
+            Open the app on both devices and keep them on the same Wi-Fi network to pair.
+          </p>
+
+          <!-- Saved devices: populated dynamically by js/parent.js (TASK-057) -->
+          <div id="empty-saved-devices" class="empty-saved-devices hidden"
+               aria-label="Saved monitors" aria-live="polite">
+            <h3 class="empty-saved-devices__heading">Saved monitors</h3>
+            <div id="empty-saved-devices-list" class="empty-saved-devices__list">
+              <!-- Saved-device cards inserted dynamically -->
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

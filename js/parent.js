@@ -234,6 +234,9 @@ const addParentSection    = document.getElementById('add-parent-section');
 const parentDashboard     = document.getElementById('parent-dashboard');
 const monitorGrid         = document.getElementById('monitor-grid');
 const monitorGridEmpty    = document.getElementById('monitor-grid-empty');
+// TASK-057: saved-device section inside the empty state
+const emptySavedDevices     = document.getElementById('empty-saved-devices');
+const emptySavedDevicesList = document.getElementById('empty-saved-devices-list');
 const alertBanners        = document.getElementById('alert-banners');
 const controlPanel        = document.getElementById('control-panel');
 const controlPanelTitle   = document.getElementById('control-panel-title');
@@ -1069,12 +1072,192 @@ function removeMonitor(deviceId) {
 
 function refreshGridEmpty() {
   if (!monitorGridEmpty) return;
-  monitorGridEmpty.classList.toggle('hidden', monitors.size > 0);
+  const isEmpty = monitors.size === 0;
+  monitorGridEmpty.classList.toggle('hidden', !isEmpty);
   if (btnAddMonitor) {
     btnAddMonitor.disabled   = monitors.size >= MAX_MONITORS;
     btnAddMonitor.title      = monitors.size >= MAX_MONITORS
       ? 'Maximum 4 baby monitors connected'
       : 'Add baby monitor';
+  }
+  // TASK-057: populate saved-device cards whenever the empty state is shown
+  if (isEmpty) {
+    _renderSavedDevicesInEmptyState();
+  }
+}
+
+/**
+ * Render saved device profiles in the dashboard empty state (TASK-057).
+ *
+ * Shows each profile that is not currently connected as a card with a
+ * "Connect" button.  Profiles that are already active in `monitors` are
+ * excluded because they will be shown in the grid once connected.
+ */
+function _renderSavedDevicesInEmptyState() {
+  if (!emptySavedDevicesList || !emptySavedDevices) return;
+
+  const profiles = getDeviceProfiles();
+  // Only show profiles that are not already active in the grid
+  const unconnected = profiles.filter(p => !monitors.has(p.id));
+
+  emptySavedDevices.classList.toggle('hidden', unconnected.length === 0);
+  emptySavedDevicesList.innerHTML = '';
+
+  for (const profile of unconnected) {
+    const card = document.createElement('div');
+    card.className = 'saved-device-card';
+    card.dataset.deviceId = profile.id;
+
+    const info = document.createElement('div');
+    info.className = 'saved-device-card__info';
+
+    const label = document.createElement('span');
+    label.className = 'saved-device-card__label';
+    label.textContent = profile.label || 'Baby monitor';
+
+    const status = document.createElement('span');
+    status.className = 'saved-device-card__status';
+    status.textContent = 'Not connected';
+
+    info.appendChild(label);
+    info.appendChild(status);
+
+    const connectBtn = document.createElement('button');
+    connectBtn.className = 'action-btn action-btn--small saved-device-card__connect-btn';
+    connectBtn.textContent = 'Connect';
+    connectBtn.setAttribute('aria-label', `Connect to ${profile.label || 'baby monitor'}`);
+    connectBtn.addEventListener('click', () => {
+      _connectSavedDevice(profile, status, connectBtn);
+    });
+
+    card.appendChild(info);
+    card.appendChild(connectBtn);
+    emptySavedDevicesList.appendChild(card);
+  }
+}
+
+/**
+ * Initiate a connection to a previously-paired baby device (TASK-057).
+ *
+ * If the device profile contains a backup peer-ID pool (saved by TASK-061),
+ * attempts a direct PeerJS connection using those IDs — no QR scan needed.
+ * Falls back to the standard pairing flow if no pool data is available.
+ *
+ * @param {import('./storage.js').DeviceProfile} profile
+ * @param {HTMLElement} statusEl   — the card's status <span> for live feedback
+ * @param {HTMLButtonElement} btn  — the Connect button (disabled during attempt)
+ */
+async function _connectSavedDevice(profile, statusEl, btn) {
+  // Extract the pool of peer IDs from the saved profile (TASK-061 format)
+  let poolIds = [];
+  let poolIndex = 0;
+  if (profile.backupPoolJson) {
+    try {
+      const poolData = JSON.parse(profile.backupPoolJson);
+      if (Array.isArray(poolData.pool)) {
+        poolIds = poolData.pool;
+        poolIndex = typeof poolData.index === 'number' ? poolData.index : 0;
+      }
+    } catch {
+      console.warn('[parent] Could not parse backupPoolJson for', profile.id);
+    }
+  }
+
+  // No pool data — fall back to manual pairing flow so the user can re-scan
+  if (poolIds.length === 0) {
+    showPairing();
+    return;
+  }
+
+  // Disable the button and show status while we attempt
+  btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Connecting…';
+
+  // Build the ordered list of IDs to try: start from the last known index,
+  // then wrap around to cover the whole pool.
+  const orderedIds = [
+    ...poolIds.slice(poolIndex),
+    ...poolIds.slice(0, poolIndex),
+  ];
+
+  // Ensure the parent peer is initialised
+  let peer = getPeer();
+  if (!peer) {
+    try {
+      await initPeer({ role: 'parent' });
+      peer = getPeer();
+    } catch (err) {
+      console.error('[parent] Could not init peer for saved-device connect:', err);
+    }
+  }
+
+  if (!peer) {
+    if (statusEl) statusEl.textContent = 'Could not reach server. Open the baby app and tap "Pair".';
+    btn.disabled = false;
+    btn.textContent = 'Try again';
+    return;
+  }
+
+  // Try each pool ID in turn until one succeeds or all are exhausted
+  let connected = false;
+  for (const targetId of orderedIds) {
+    if (connected) break;
+
+    await new Promise((resolve) => {
+      const TIMEOUT_MS = 10_000;
+      let done = false;
+
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve();
+      }, TIMEOUT_MS);
+
+      parentListenPeerJs(
+        {
+          onReady(conn) {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            connected = true;
+            addMonitor(conn);
+            showDashboard();
+            resolve();
+          },
+          onState(s) {
+            if ((s === 'disconnected' || s === 'failed') && !done) {
+              done = true;
+              clearTimeout(timer);
+              resolve();
+            }
+          },
+          onMessage(msg) {
+            handleDataMessage(targetId, msg);
+          },
+        },
+        targetId,
+      );
+
+      // Trigger the baby to call us back
+      try {
+        peer.connect(targetId, { reliable: true });
+      } catch (err) {
+        console.warn('[parent] Trigger connect to', targetId, 'failed:', err);
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          resolve();
+        }
+      }
+    });
+  }
+
+  if (!connected) {
+    // All pool IDs failed — prompt the user to re-pair
+    if (statusEl) statusEl.textContent = 'Not reachable. Open the baby app and try again.';
+    btn.disabled = false;
+    btn.textContent = 'Pair again';
+    btn.addEventListener('click', () => showPairing(), { once: true });
   }
 }
 
