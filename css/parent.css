@@ -1206,6 +1206,19 @@
   line-height: 1.4;
 }
 
+/* TASK-034: live bitrate diagnostic line below quality hint */
+.stream-bitrate-hint {
+  margin-top: var(--space-xs, 0.25rem);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.stream-bitrate-hint #cp-stream-bitrate {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
 /* --------------------------------------------------------------------------
    Toggle row (audio-only, etc.)
    -------------------------------------------------------------------------- */

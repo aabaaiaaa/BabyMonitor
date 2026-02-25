@@ -81,6 +81,8 @@ const MAX_MONITORS = 4;
  * @property {boolean}         powerSaverMode  — TASK-028: reduced analysis frequency on this monitor
  * @property {string[]|null}   backupPool      — TASK-061: backup peer ID pool received from baby
  * @property {number}          backupPoolIndex — TASK-061: last known pool index (synced via MSG.ID_POOL)
+ * @property {number|null}     bitrateTimerId  — TASK-034: setInterval ID for bitrate stats polling
+ * @property {number}          currentBitrateKbps — TASK-034: last measured inbound bitrate in kbps
  */
 
 /** @type {Map<string, MonitorEntry>} deviceId → monitor entry */
@@ -333,6 +335,9 @@ const cpLibraryList       = document.getElementById('cp-library-list');
 const cpLibraryEmpty      = document.getElementById('cp-library-empty');
 const cpLibraryStorage    = document.getElementById('cp-library-storage');
 const cpLibraryQuotaWarn  = document.getElementById('cp-library-quota-warning');
+
+// Stream quality / bitrate diagnostic (TASK-034)
+const cpStreamBitrate     = document.getElementById('cp-stream-bitrate'); // live bitrate readout
 
 // Battery-saving controls (TASK-028)
 const cpVideoPaused       = document.getElementById('cp-video-paused');   // pause video from parent
@@ -1251,6 +1256,8 @@ function addMonitor(conn) {
     powerSaverMode:   false, // TASK-028: reduced analysis frequency
     backupPool:       _restoredPool,  // TASK-061: backup peer ID pool
     backupPoolIndex:  _restoredIndex, // TASK-061: last known pool index
+    bitrateTimerId:   null,  // TASK-034: setInterval ID for bitrate stats polling
+    currentBitrateKbps: 0,  // TASK-034: last measured inbound bitrate in kbps
   };
 
   // Show PWA install prompt on first connection after onboarding (TASK-052).
@@ -1266,6 +1273,9 @@ function addMonitor(conn) {
 
   // Start motion detection (TASK-026)
   startMotionDetection(entry);
+
+  // Start stream bitrate poller (TASK-034)
+  startBitratePoller(entry);
 
   // E2E test hooks (TASK-063): expose connection state and last connection for assertions.
   window.__peerState = 'connected';
@@ -1313,6 +1323,9 @@ function removeMonitor(deviceId) {
 
   // Stop motion detection (TASK-026): clear interval and reset state.
   stopMotionDetection(entry);
+
+  // Stop bitrate poller (TASK-034)
+  stopBitratePoller(entry);
 
   // Disconnect Web Audio nodes (TASK-011: disconnect in source→gain→analyser order)
   try {
@@ -2200,6 +2213,77 @@ function restartMotionDetection(entry) {
 }
 
 // ---------------------------------------------------------------------------
+// Stream bitrate poller (TASK-034)
+// ---------------------------------------------------------------------------
+
+/** Poll interval for bitrate stats — 2 seconds. */
+const BITRATE_POLL_INTERVAL_MS = 2000;
+
+/**
+ * Start a periodic bitrate stats poll for a monitor entry (TASK-034).
+ *
+ * Every BITRATE_POLL_INTERVAL_MS ms, calls RTCPeerConnection.getStats() and
+ * sums `bytesReceived` across all inbound-rtp reports (video + audio) to
+ * compute the current inbound bitrate in kbps.  The value is stored on
+ * `entry.currentBitrateKbps` and, if the control panel for this device is
+ * currently open, it is written into the #cp-stream-bitrate display element.
+ *
+ * @param {MonitorEntry} entry
+ */
+function startBitratePoller(entry) {
+  stopBitratePoller(entry);
+
+  let _prevBytes = 0;
+  let _prevTime  = Date.now();
+
+  entry.bitrateTimerId = setInterval(async () => {
+    const pc = entry.conn?.peerConnection;
+    if (!pc) return;
+
+    try {
+      const stats = await pc.getStats();
+      let totalBytes = 0;
+
+      stats.forEach(report => {
+        // Sum bytesReceived from all inbound RTP streams (video and audio)
+        if (report.type === 'inbound-rtp' &&
+            (report.kind === 'video' || report.kind === 'audio')) {
+          totalBytes += report.bytesReceived ?? 0;
+        }
+      });
+
+      const now   = Date.now();
+      const dtSec = (now - _prevTime) / 1000;
+      const bits  = (totalBytes - _prevBytes) * 8;
+      const kbps  = dtSec > 0 ? Math.round(bits / dtSec / 1000) : 0;
+
+      _prevBytes = totalBytes;
+      _prevTime  = now;
+
+      entry.currentBitrateKbps = kbps > 0 ? kbps : entry.currentBitrateKbps;
+
+      // Reflect immediately in the control panel if it is showing this device.
+      if (controlPanelDeviceId === entry.deviceId && cpStreamBitrate) {
+        cpStreamBitrate.textContent = kbps > 0 ? `${kbps} kbps` : '—';
+      }
+    } catch {
+      // getStats() may fail if the connection has closed — ignore silently.
+    }
+  }, BITRATE_POLL_INTERVAL_MS);
+}
+
+/**
+ * Stop the bitrate poller for a monitor entry (TASK-034).
+ * @param {MonitorEntry} entry
+ */
+function stopBitratePoller(entry) {
+  if (entry.bitrateTimerId !== null) {
+    clearInterval(entry.bitrateTimerId);
+    entry.bitrateTimerId = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Control panel (TASK-025)
 // ---------------------------------------------------------------------------
 
@@ -2277,6 +2361,14 @@ function openControlPanel(deviceId) {
 
   // Load audio library (TASK-049)
   _loadLibraryPanel().catch(err => console.warn('[parent] Library load error:', err));
+
+  // Show the last measured stream bitrate (TASK-034).
+  // The poller updates this live while the panel is open; this ensures the
+  // display shows the most recent value immediately when the panel opens.
+  if (cpStreamBitrate) {
+    const kbps = entry.currentBitrateKbps;
+    cpStreamBitrate.textContent = kbps > 0 ? `${kbps} kbps` : '—';
+  }
 
   controlPanel?.classList.remove('hidden');
 }

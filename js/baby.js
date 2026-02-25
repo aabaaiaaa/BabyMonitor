@@ -1212,6 +1212,17 @@ const QUALITY_PRESETS = {
 };
 
 /**
+ * Maximum video bitrate (bps) per quality preset (TASK-034).
+ * Applied via RTCRtpSender.setParameters() to limit RTP bandwidth at the
+ * codec layer without requiring SDP renegotiation.
+ */
+const QUALITY_MAX_BITRATE = {
+  low:    200_000,   //  200 kbps — best battery / bandwidth efficiency
+  medium: 500_000,   //  500 kbps — balanced (default)
+  high:  1_500_000,  // 1500 kbps — highest quality
+};
+
+/**
  * Request camera and microphone access.
  *
  * Falls back to audio-only automatically if camera access is denied or
@@ -1463,6 +1474,22 @@ async function applyQualityConstraints(quality) {
         await videoSender.replaceTrack(newVideoTrack).catch(e => {
           console.warn('[baby] replaceTrack for quality change failed:', e);
         });
+
+        // Apply a bitrate cap via setParameters() (TASK-034).
+        // This limits RTP bandwidth at the codec layer without SDP renegotiation,
+        // complementing the resolution/frame-rate change above.
+        // Falls back gracefully on browsers that do not support setParameters().
+        try {
+          const params = videoSender.getParameters();
+          if (params.encodings && params.encodings.length > 0) {
+            const maxBitrate = QUALITY_MAX_BITRATE[quality] ?? QUALITY_MAX_BITRATE.medium;
+            params.encodings.forEach(enc => { enc.maxBitrate = maxBitrate; });
+            await videoSender.setParameters(params);
+            console.log(`[baby] Bitrate cap set to ${maxBitrate / 1000} kbps for quality "${quality}"`);
+          }
+        } catch (e) {
+          console.warn('[baby] setParameters for bitrate cap failed (non-fatal):', e);
+        }
       }
     }
 

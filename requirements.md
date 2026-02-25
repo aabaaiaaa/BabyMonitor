@@ -232,7 +232,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Ensure both monitor UIs are fully usable on a phone held in portrait or landscape orientation, as well as on a tablet. The baby monitor UI should be fullscreen with no distracting chrome. The parent dashboard should adapt its grid layout based on the number of connected monitors and the available screen area. Use CSS Grid and media queries. Ensure all touch targets are large enough (minimum 44×44 px). Test the layout at common mobile resolutions (375px, 414px, 768px wide).
 
 ### TASK-034: Implement video quality and stream configuration controls
-- **Status**: pending
+- **Status**: done
 - **Priority**: low
 - **Dependencies**: TASK-010, TASK-028
 - **Description**: Add a video quality settings panel accessible from the baby monitor device (locally) and remotely from the parent control panel. Offer preset quality levels: Low (320×240, 10 fps), Medium (640×480, 15 fps), High (1280×720, 24 fps). Use `RTCRtpSender.setParameters()` to adjust bitrate constraints on the active connection without renegotiation where possible. Display the current estimated stream bitrate on the parent dashboard as a diagnostic. The default should be Medium to balance quality and battery life.
