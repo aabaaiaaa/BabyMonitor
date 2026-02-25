@@ -321,6 +321,7 @@ const flipCameraBtn       = document.getElementById('btn-flip-camera');
 const audioOnlyToggle     = document.getElementById('audio-only-toggle');
 const screenDimToggle     = document.getElementById('screen-dim-toggle');   // TASK-028
 const orientationSelect   = document.getElementById('orientation-select');
+const orientationApiNote  = document.getElementById('orientation-api-note');  // TASK-040
 const disconnectBtn       = document.getElementById('btn-disconnect');
 const settingsCloseBtn    = document.getElementById('baby-settings-close');
 const babyDefaultTrack    = document.getElementById('baby-default-track');  // TASK-032
@@ -1492,6 +1493,7 @@ function startMonitor(conn) {
   if (screenDimToggle) screenDimToggle.checked = state.screenDim;
   // TASK-032: sync orientation select and default track from saved settings.
   if (orientationSelect) orientationSelect.value = settings.orientation ?? 'auto';
+  _applyOrientationLock(settings.orientation ?? 'auto');  // TASK-040: lock on entry
   if (babyDefaultTrack) babyDefaultTrack.value = settings.defaultTrack ?? '';
   startBatteryMonitoring(); // TASK-020
   sendStateSnapshot();     // TASK-048
@@ -3121,6 +3123,10 @@ function handleDisconnect(reason) {
   // Stop the speak-through ducking detector and restore gain (TASK-038).
   _stopDuckingDetector();
 
+  // TASK-040: release orientation lock when leaving monitor mode so the OS
+  // can control rotation freely on the disconnected / pairing screens.
+  screen.orientation?.unlock?.();
+
   // Close the connection cleanly (closes data channel / peer connection)
   try { activeConnection?.close?.(); } catch (_) { /* ignore */ }
   activeConnection = null;
@@ -3178,12 +3184,44 @@ screenDimToggle?.addEventListener('change', () => {
   applyScreenDimMode(screenDimToggle.checked);
 });
 
+// ---------------------------------------------------------------------------
+// Screen orientation lock (TASK-040)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply (or release) the Screen Orientation API lock for the given setting.
+ *
+ * - 'auto'             → unlock so the OS controls orientation
+ * - any other value    → lock to that orientation type
+ *
+ * If the Screen Orientation API is not available, the settings note is
+ * revealed so the user understands why no lock will be applied.
+ *
+ * @param {string} value — 'auto'|'portrait'|'landscape-primary'|'landscape-secondary'
+ */
+function _applyOrientationLock(value) {
+  if (!screen.orientation?.lock) {
+    // API not supported — reveal the note and leave orientation unlocked.
+    if (orientationApiNote) orientationApiNote.hidden = false;
+    return;
+  }
+  // API is supported — hide the note (it is only for the unsupported case).
+  if (orientationApiNote) orientationApiNote.hidden = true;
+
+  if (value === 'auto') {
+    screen.orientation.unlock();
+  } else {
+    screen.orientation.lock(value).catch(() => {
+      // Lock may be rejected (e.g. desktop browsers, non-fullscreen context).
+      // Silently ignore — the user will see the display rotate naturally.
+    });
+  }
+}
+
 orientationSelect?.addEventListener('change', () => {
   const value = orientationSelect.value;
   saveSetting(SETTING_KEYS.ORIENTATION, value);
-  if (value !== 'auto' && screen.orientation?.lock) {
-    screen.orientation.lock(value).catch(() => {});
-  }
+  _applyOrientationLock(value);  // TASK-040
 });
 
 // TASK-032: Default music track selector — persists to DEFAULT_TRACK in localStorage.

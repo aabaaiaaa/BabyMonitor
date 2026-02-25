@@ -271,6 +271,10 @@
             <option value="landscape-primary">Landscape Left</option>
             <option value="landscape-secondary">Landscape Right</option>
           </select>
+          <!-- TASK-040: shown when Screen Orientation API is not available -->
+          <p class="settings-hint settings-hint--warning" id="orientation-api-note" hidden>
+            Screen orientation lock is not supported in this browser. The orientation will follow the device's physical rotation.
+          </p>
         </section>
 
         <section class="settings-group">

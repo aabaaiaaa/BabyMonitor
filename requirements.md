@@ -268,7 +268,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Once the baby monitor is running in soothing or streaming mode, lock the UI against accidental input. Any single tap on the screen shows a very dim, brief text hint (e.g. "Triple tap to unlock") that fades out within 2 seconds. Three taps within 1.5 seconds unlocks the UI and reveals the settings/mode controls. When locked, the Fullscreen API (`document.documentElement.requestFullscreen()`) should be active to prevent browser chrome from appearing. Re-lock the UI automatically after 30 seconds of inactivity once unlocked. The locked state should be the default whenever the device enters a soothing or streaming mode.
 
 ### TASK-040: Implement screen orientation lock on baby monitor
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-015, TASK-039
 - **Description**: Provide an orientation setting accessible during baby monitor setup (before locking the UI via TASK-039). Options: Portrait, Landscape Left, Landscape Right, and Auto (no lock). Use the Screen Orientation API (`screen.orientation.lock()`) to lock the display to the chosen orientation when entering soothing/streaming mode. Save the chosen orientation in `localStorage` so it is restored on reconnection. Fall back gracefully if the API is not supported (leave orientation unlocked and show a note in settings). This prevents the display layout from being disrupted if the device is placed on its side.
