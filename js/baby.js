@@ -3154,3 +3154,37 @@ if (_compatResult !== 'blocked') {
     });
   }, { once: true });
 }
+
+// ---------------------------------------------------------------------------
+// E2E test hooks (TASK-067)
+// ---------------------------------------------------------------------------
+// These helpers are set at module scope so their closures capture the live
+// module-level bindings (activeConnection, lsGet, SETTING_KEYS).  They are
+// intentional no-ops until the app reaches the appropriate state.
+
+/**
+ * Simulate a WebRTC connection drop by closing the active connection from the
+ * baby side.  Both the data channel and the media call are torn down, which
+ * triggers close events on both sides and causes both the baby and parent to
+ * enter their respective auto-reconnect flows — exactly as if the network had
+ * been interrupted while the app was running.
+ */
+window.__testDropConnection = () => {
+  if (activeConnection) {
+    try { activeConnection.close(); } catch (_) { /* ignore */ }
+  }
+};
+
+/**
+ * Return the current backup pool index from localStorage.
+ * After the first reconnect this should be 1 (advanced from 0 → 1).
+ * @returns {number}
+ */
+window.__testGetPoolIndex = () => lsGet(SETTING_KEYS.BACKUP_POOL_INDEX, 0);
+
+/**
+ * Return the full backup peer ID pool array from localStorage, or null if
+ * the pool has not been created yet.
+ * @returns {string[]|null}
+ */
+window.__testGetPool = () => lsGet(SETTING_KEYS.BACKUP_ID_POOL, null);

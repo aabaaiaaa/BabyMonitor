@@ -3072,3 +3072,23 @@ window.__testActivateSpeakThrough = async (deviceId) => {
 window.__testStopSpeakThrough = () => {
   stopSpeakThrough();
 };
+
+// ---------------------------------------------------------------------------
+// E2E test hooks (TASK-067)
+// ---------------------------------------------------------------------------
+
+/**
+ * Override the in-memory backup pool start index for a given device so that
+ * the parent's very first reconnect attempt uses poolIds[index] instead of
+ * poolIds[0].  Setting this to 1 makes attempt 1 target pool[1], which is the
+ * same ID the baby advances to on its first reconnect (index 0 → 1), allowing
+ * the two sides to converge on the matching backup peer ID immediately without
+ * sitting through the 12-second per-attempt timeout.
+ *
+ * @param {string} deviceId
+ * @param {number} index
+ */
+window.__testSetPoolStartIndex = (deviceId, index) => {
+  const entry = monitors.get(deviceId);
+  if (entry) entry.backupPoolIndex = index;
+};
