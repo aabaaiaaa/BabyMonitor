@@ -318,6 +318,8 @@ const soothingSettingsBtn = document.getElementById('soothing-settings-btn');
 // Settings overlay elements
 const modeBtns            = babySettingsOverlay?.querySelectorAll('.mode-btn') ?? [];
 const flipCameraBtn       = document.getElementById('btn-flip-camera');
+const setupFlipCameraBtn  = document.getElementById('btn-setup-flip-camera');   // TASK-041
+const setupCameraFacingText = document.getElementById('setup-camera-facing-text'); // TASK-041
 const audioOnlyToggle     = document.getElementById('audio-only-toggle');
 const screenDimToggle     = document.getElementById('screen-dim-toggle');   // TASK-028
 const orientationSelect   = document.getElementById('orientation-select');
@@ -753,6 +755,7 @@ if (!('wakeLock' in navigator)) {
 /** Entry point: called after the user taps the tap-overlay. */
 async function init() {
   setupTheme();
+  _updateCameraFacingUI(); // TASK-041: reflect saved camera preference in the setup UI
   await requestWakeLock(); // TASK-003
   _initOnboardingHint();   // TASK-031
   showPairing();
@@ -1491,6 +1494,7 @@ function startMonitor(conn) {
   // Sync settings UI to current state so toggles reflect reality when overlay opens.
   if (audioOnlyToggle) audioOnlyToggle.checked = state.audioOnly;
   if (screenDimToggle) screenDimToggle.checked = state.screenDim;
+  _updateCameraFacingUI(); // TASK-041: sync camera direction indicator in settings overlay
   // TASK-032: sync orientation select and default track from saved settings.
   if (orientationSelect) orientationSelect.value = settings.orientation ?? 'auto';
   _applyOrientationLock(settings.orientation ?? 'auto');  // TASK-040: lock on entry
@@ -2977,27 +2981,77 @@ function handleDataMessage(msg) {
 // Camera flip (TASK-041)
 // ---------------------------------------------------------------------------
 
+/**
+ * Update the camera-facing indicator labels in both the setup screen and the
+ * settings overlay to match the current value of `state.cameraFacing`.
+ * Called on page init and after every flip so users always know which camera
+ * is selected.
+ */
+function _updateCameraFacingUI() {
+  const label = state.cameraFacing === 'user' ? 'Front' : 'Rear';
+  if (setupCameraFacingText) setupCameraFacingText.textContent = label;
+}
+
+/**
+ * Toggle between front-facing ('user') and rear-facing ('environment') camera.
+ *
+ * If no stream is active yet (pre-connection or audio-only mode) only the
+ * state preference is updated and saved to localStorage; the new value will
+ * be used automatically when getUserMediaStream() is called next.
+ *
+ * When a live stream is active, only the video track is replaced — the audio
+ * track is left untouched to avoid redundantly re-capturing the microphone.
+ * If the new camera cannot be opened (e.g. the device has only one camera),
+ * the state is reverted to the previous value.
+ */
 async function flipCamera() {
+  // Toggle and persist the preference.
   state.cameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user';
   saveSetting(SETTING_KEYS.CAMERA_FACING, state.cameraFacing);
+  _updateCameraFacingUI();
 
-  if (!localStream) return;
+  // Pre-connection or audio-only: preference saved; applied when camera starts.
+  if (!localStream || state.audioOnly) return;
 
-  // Stop existing video track
+  // Stop the existing video track(s) before requesting the new camera.
   for (const track of localStream.getVideoTracks()) {
     track.stop();
     localStream.removeTrack(track);
   }
 
-  // Request new stream with flipped camera
-  const newStream = await getUserMediaStream();
+  // Request only video for the new camera direction — do not re-capture audio.
+  const q = QUALITY_PRESETS[state.quality] ?? QUALITY_PRESETS.medium;
+  let newVideoTrack = null;
+  try {
+    const videoStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: state.cameraFacing },
+        width:      { ideal: q.width },
+        height:     { ideal: q.height },
+        frameRate:  { ideal: q.frameRate },
+      },
+      audio: false,
+    });
+    newVideoTrack = videoStream.getVideoTracks()[0];
+  } catch (err) {
+    console.warn('[baby] Camera flip failed — reverting to previous camera:', err.name, err.message);
+    // Revert state so future getUserMedia calls use the working camera.
+    state.cameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user';
+    saveSetting(SETTING_KEYS.CAMERA_FACING, state.cameraFacing);
+    _updateCameraFacingUI();
+    return;
+  }
 
-  // Replace track on the peer connection
-  const videoTrack = newStream.getVideoTracks()[0];
-  if (videoTrack && activeConnection?.peerConnection) {
-    const senders = activeConnection.peerConnection.getSenders();
-    const videoSender = senders.find(s => s.track?.kind === 'video');
-    if (videoSender) await videoSender.replaceTrack(videoTrack);
+  if (newVideoTrack) {
+    localStream.addTrack(newVideoTrack);
+
+    // Replace the video sender on the active peer connection so the parent
+    // immediately sees the new camera feed without renegotiation.
+    if (activeConnection?.peerConnection) {
+      const senders = activeConnection.peerConnection.getSenders();
+      const videoSender = senders.find(s => s.track?.kind === 'video');
+      if (videoSender) await videoSender.replaceTrack(newVideoTrack);
+    }
   }
 
   sendStateSnapshot();
@@ -3170,6 +3224,7 @@ for (const btn of modeBtns) {
 }
 
 flipCameraBtn?.addEventListener('click', flipCamera);
+setupFlipCameraBtn?.addEventListener('click', flipCamera); // TASK-041: setup screen flip
 
 audioOnlyToggle?.addEventListener('change', () => {
   const enabled = audioOnlyToggle.checked;

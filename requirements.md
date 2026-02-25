@@ -274,7 +274,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Provide an orientation setting accessible during baby monitor setup (before locking the UI via TASK-039). Options: Portrait, Landscape Left, Landscape Right, and Auto (no lock). Use the Screen Orientation API (`screen.orientation.lock()`) to lock the display to the chosen orientation when entering soothing/streaming mode. Save the chosen orientation in `localStorage` so it is restored on reconnection. Fall back gracefully if the API is not supported (leave orientation unlocked and show a note in settings). This prevents the display layout from being disrupted if the device is placed on its side.
 
 ### TASK-041: Implement camera selection on baby monitor
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-010
 - **Description**: Add a camera flip button to the baby monitor setup screen (and accessible from the unlocked settings overlay). Tapping it switches between front-facing (`facingMode: 'user'`) and rear-facing (`facingMode: 'environment'`) cameras by stopping the current track and calling `getUserMedia` again with the new constraint. The active camera choice is saved in `localStorage`. Also expose a "Switch camera" command via the data channel so the parent can flip the camera remotely from the parent dashboard. Note: no camera direction is assumed — the parent chooses whichever camera provides the best view for their placement of the device.

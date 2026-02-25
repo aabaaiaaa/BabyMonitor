@@ -103,6 +103,14 @@
           <strong>Offline QR Pair</strong><br />
           <small>Works with no internet, over local Wi-Fi only. Requires scanning several QR codes.</small>
         </button>
+
+        <!-- Camera selection (TASK-041): pre-select which camera to use before connecting.
+             The choice is saved to localStorage and applied when getUserMedia is called. -->
+        <div class="setup-camera-row" role="group" aria-label="Camera selection">
+          <span class="setup-camera-label">Camera: <strong id="setup-camera-facing-text">Rear</strong></span>
+          <button id="btn-setup-flip-camera" class="action-btn action-btn--small"
+                  aria-label="Switch between front and rear camera">Flip Camera</button>
+        </div>
       </div>
 
       <!-- Step 2a: PeerJS — show single QR for parent to scan -->

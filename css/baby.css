@@ -295,6 +295,29 @@ body.baby-screen .pairing-step__desc {
 }
 
 /* --------------------------------------------------------------------------
+   Camera selection row on the setup / pairing screen (TASK-041)
+   Shows the current camera direction and a flip button so the user can
+   pre-select the camera before connecting to the parent device.
+   -------------------------------------------------------------------------- */
+body.baby-screen .setup-camera-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: #e8e8f0;
+}
+
+body.baby-screen .setup-camera-label {
+  font-size: var(--font-size-sm);
+  color: rgba(232, 232, 240, 0.8);
+}
+
+/* --------------------------------------------------------------------------
    Speak-through indicator (TASK-012)
    Top-left corner; visible only when the parent's microphone is active.
    Pulses gently to signal audio is being received from the parent.
