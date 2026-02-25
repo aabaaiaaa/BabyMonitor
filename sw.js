@@ -58,6 +58,7 @@ const APP_ASSETS = [
   './js/webrtc.js',
   './js/storage.js',
   './js/sw-update.js',
+  './js/diagnostics.js',
   './manifest.json',
   './icons/icon.svg',
 ];

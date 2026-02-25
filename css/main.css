@@ -2073,6 +2073,121 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   Connection diagnostics panel (TASK-059)
+   Used on both parent.html (as a modal overlay) and baby.html (inline in
+   the settings overlay).
+   -------------------------------------------------------------------------- */
+
+/* Full-screen modal backdrop (parent side) */
+.diag-panel {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: flex-end;       /* slides up from bottom on mobile */
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  padding: var(--space-md);
+  padding-bottom: max(var(--space-md), env(safe-area-inset-bottom));
+}
+
+.diag-panel__inner {
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-md) var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.diag-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.diag-panel__title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.diag-panel__close {
+  flex-shrink: 0;
+}
+
+.diag-panel__note {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* The diagnostics content area is shared between the modal (parent) and the
+   inline settings section (baby). */
+.diag-panel__content {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  padding: var(--space-md);
+  min-height: 2rem;
+}
+
+/* Diagnostics definition list */
+.diag-list {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.diag-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+  align-items: baseline;
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.diag-row:last-child {
+  border-bottom: none;
+}
+
+.diag-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.diag-value {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  font-family: monospace;
+  word-break: break-all;
+  margin: 0;
+}
+
+/* On wider screens, centre the panel vertically */
+@media (min-width: 480px) {
+  .diag-panel {
+    align-items: center;
+  }
+
+  .diag-panel__inner {
+    border-radius: var(--radius-lg);
+  }
+}
+
+/* --------------------------------------------------------------------------
    Responsive overrides
    Min-width 768px — tablet / landscape phone
    -------------------------------------------------------------------------- */

@@ -44,6 +44,9 @@ import {
 import { showCompatWarnings } from './browser-compat.js';
 import { maybeShowPwaInstallBanner } from './pwa-install.js';
 import {
+  updateDiag, resetDiag, renderDiag, recordBackupIdTried,
+} from './diagnostics.js';
+import {
   attachMusicPlayer,
   playTrack as _mpPlayTrack,
   stopTrack as _mpStopTrack,
@@ -336,6 +339,9 @@ const babyDefaultTrack    = document.getElementById('baby-default-track');  // T
 const combinedLightSelect = document.getElementById('baby-combined-light');  // TASK-054
 const combinedLightField  = document.getElementById('combined-light-field'); // TASK-054
 
+// Connection diagnostics (TASK-059)
+const babyDiagContent     = document.getElementById('baby-diag-content');
+
 // Audio library (TASK-049)
 const babyLibraryList     = document.getElementById('baby-library-list');
 const babyLibraryEmpty    = document.getElementById('baby-library-empty');
@@ -612,10 +618,14 @@ async function _attemptPeerJsReconnect(attempt) {
   }
 
   console.log(`[baby] Reconnect attempt ${attempt} using peer ID: ${nextId} (TASK-030)`);
+  // TASK-059: Record backup ID being tried in diagnostics
+  recordBackupIdTried(nextId);
 
   try {
     // Step 2: re-register with PeerJS under the new backup ID
     await initPeer(null, null, nextId);
+    // TASK-059: Update local peer ID in diagnostics to the backup ID
+    updateDiag({ localPeerId: nextId, peerJsServerStatus: 'ready' });
 
     // Step 3: call the parent back using the stored parent peer ID
     await babyCallParent(_parentPeerId, localStream, {
@@ -730,6 +740,8 @@ function _attemptOfflineIceRestart() {
  */
 function _onAutoReconnectFailed(reason) {
   console.log('[baby] Auto-reconnect failed:', reason, '(TASK-030)');
+  // TASK-059: Record the failure reason in diagnostics
+  updateDiag({ lastError: reason });
   const wasReconnecting = _isReconnecting;
   _cancelAutoReconnect();
 
@@ -1006,6 +1018,10 @@ async function startPeerJsPairing() {
 
   if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Connecting to pairing server…';
 
+  // TASK-059: Reset diagnostics for this fresh pairing attempt
+  resetDiag();
+  updateDiag({ method: 'peerjs', peerJsServerStatus: 'registering' });
+
   // Unsubscribe any previous status listener to prevent duplicates
   _peerStatusUnsub?.();
 
@@ -1015,11 +1031,16 @@ async function startPeerJsPairing() {
     // Only update UI while the PeerJS pairing step is visible
     if (pairingPeerjsStep?.classList.contains('hidden')) return;
 
+    // TASK-059: Mirror PeerJS server status into diagnostics
+    updateDiag({ peerJsServerStatus: status });
+
     if (status === 'disconnected') {
       if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = 'Reconnecting to pairing server…';
     } else if (status === 'error') {
       const msg = detail?.message ?? 'PeerJS connection error. Try Offline QR pairing.';
       if (pairingStatusPeerjs) pairingStatusPeerjs.textContent = msg;
+      // TASK-059: Record PeerJS error in diagnostics
+      updateDiag({ peerJsError: msg, lastError: msg });
 
       // When the server is unreachable, offer a one-tap fallback to Offline QR
       if (detail?.serverUnavailable || detail?.type === PEER_ERROR.LIBRARY_UNAVAILABLE) {
@@ -1031,6 +1052,9 @@ async function startPeerJsPairing() {
   try {
     const peerjsServerConfig = lsGet(SETTING_KEYS.PEERJS_SERVER, null);
     const peerId = await initPeer(peerjsServerConfig);
+
+    // TASK-059: Record local peer ID in diagnostics
+    updateDiag({ localPeerId: peerId, peerJsServerStatus: 'ready' });
 
     // Show QR code of our peer ID for the parent to scan
     if (peerjsQrContainer) renderQR(peerjsQrContainer, peerId, { size: 240 });
@@ -1135,6 +1159,10 @@ async function startOfflinePairing() {
 
   if (offlineQrContainer) offlineQrContainer.innerHTML = '<div class="qr-placeholder">Generating offer…</div>';
 
+  // TASK-059: Reset diagnostics for this fresh offline pairing attempt
+  resetDiag();
+  updateDiag({ method: 'offline' });
+
   try {
     // Step 1: get media stream for inclusion in the offer
     localStream = await getUserMediaStream();
@@ -1145,6 +1173,8 @@ async function startOfflinePairing() {
     // Step 2: generate SDP offer + ICE candidates
     const offerJson = await offlineBabyCreateOffer(localStream, {
       onReady(conn) {
+        // TASK-059: Start watching live RTC state once connection is ready
+        _watchBabyRtcDiagnostics(conn.peerConnection);
         activeConnection = conn;
         startMonitor(conn);
       },
@@ -1155,6 +1185,12 @@ async function startOfflinePairing() {
         handleDataMessage(msg);
       },
     });
+
+    // TASK-059: Count ICE candidates gathered from the offer JSON
+    try {
+      const parsed = JSON.parse(offerJson);
+      updateDiag({ rtcIceCandidatesGathered: parsed.candidates?.length ?? 0 });
+    } catch (_) { /* ignore JSON parse errors */ }
 
     // Step 3: encode offer as QR grid for parent to scan.
     // No explicit qrSize: renderQRGrid will size cells to fit the container.
@@ -1184,6 +1220,11 @@ async function startOfflinePairing() {
     // Step 5: receive the answer
     await offlineBabyReceiveAnswer(answerJson, {
       onReady(conn) {
+        // TASK-059: If connection changed (reconnect path), update RTC watcher
+        if (conn.peerConnection !== activeConnection?.peerConnection) {
+          _watchBabyRtcDiagnostics(conn.peerConnection);
+        }
+        updateDiag({ rtcDataChannelState: 'open' });
         activeConnection = conn;
         startMonitor(conn);
       },
@@ -1193,11 +1234,30 @@ async function startOfflinePairing() {
     });
   } catch (err) {
     console.error('[baby] Offline pairing error:', err);
+    updateDiag({ lastError: err.message ?? 'Pairing failed' });
     if (pairingStatusOffline) {
       pairingStatusOffline.textContent =
         err.message || 'Pairing failed. Please try again.';
     }
   }
+}
+
+/**
+ * TASK-059: Attach listeners to a baby-side RTCPeerConnection to keep
+ * diagnostics updated with live connection and ICE state.
+ * @param {RTCPeerConnection|null} pc
+ */
+function _watchBabyRtcDiagnostics(pc) {
+  if (!pc) return;
+  const update = () => {
+    updateDiag({
+      rtcConnectionState:    pc.connectionState     ?? null,
+      rtcIceConnectionState: pc.iceConnectionState  ?? null,
+    });
+  };
+  update(); // capture current state immediately
+  pc.addEventListener('connectionstatechange',    update);
+  pc.addEventListener('iceconnectionstatechange', update);
 }
 
 // ---------------------------------------------------------------------------
@@ -3424,15 +3484,26 @@ function enterTouchLock() {
  * Automatically re-engages the lock after 30 seconds of inactivity so the
  * user does not have to manually re-lock every time.
  */
+/** @type {(() => void)|null} Cleanup fn from renderDiag for the baby settings overlay */
+let _babyDiagCleanup = null;
+
 function exitTouchLock() {
   clearTimeout(_relockTimerId);
   state.locked = false;
   babySettingsOverlay?.classList.remove('hidden');
   // Load audio library whenever the settings overlay opens (TASK-049)
   _loadBabyLibraryPanel().catch(err => console.warn('[baby] Library load error:', err));
+  // TASK-059: Start live diagnostics in the settings overlay
+  if (babyDiagContent) {
+    _babyDiagCleanup?.();
+    _babyDiagCleanup = renderDiag(babyDiagContent, { liveUpdate: true });
+  }
   // Auto re-lock after 30 seconds of inactivity (TASK-039)
   _relockTimerId = setTimeout(() => {
     _relockTimerId = null;
+    // TASK-059: Stop live diagnostics when the overlay auto-hides
+    _babyDiagCleanup?.();
+    _babyDiagCleanup = null;
     babySettingsOverlay?.classList.add('hidden');
     enterTouchLock();
   }, 30_000);
@@ -3664,6 +3735,9 @@ soothingSettingsBtn?.addEventListener('click', (e) => {
 });
 
 settingsCloseBtn?.addEventListener('click', () => {
+  // TASK-059: Stop live diagnostics when settings overlay closes manually
+  _babyDiagCleanup?.();
+  _babyDiagCleanup = null;
   babySettingsOverlay?.classList.add('hidden');
   enterTouchLock();
 });

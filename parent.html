@@ -786,6 +786,18 @@
         <p class="settings-hint">This volume is separate from Monitor Volume and Music Volume.</p>
       </section>
 
+      <!-- Connection diagnostics link (TASK-059): discreet link opening the diagnostics panel -->
+      <section class="settings-group" aria-labelledby="diag-link-label">
+        <h3 id="diag-link-label">Connection Diagnostics</h3>
+        <p class="settings-group__desc">
+          View read-only technical details about the current connection — useful if you
+          need to report a persistent connection failure.
+        </p>
+        <div class="settings-actions">
+          <button id="btn-show-diag" class="action-btn action-btn--secondary">View connection details</button>
+        </div>
+      </section>
+
       <!-- Share with another parent device (TASK-058) -->
       <section class="settings-group" aria-labelledby="share-parent-label">
         <h3 id="share-parent-label">Share with Another Parent</h3>
@@ -885,6 +897,27 @@
       <button id="sw-update-btn" class="sw-update-banner__update-btn">Update</button>
       <button id="sw-update-dismiss" class="sw-update-banner__dismiss-btn"
               aria-label="Dismiss update notification">✕</button>
+    </div>
+  </div>
+
+  <!-- Connection diagnostics panel (TASK-059): read-only informational overlay.
+       Opened from the re-pair banner or from the Settings screen.
+       Live-updated while a connection is being established. -->
+  <div id="diag-panel" class="diag-panel hidden" role="dialog" aria-modal="true"
+       aria-labelledby="diag-panel-title">
+    <div class="diag-panel__inner">
+      <div class="diag-panel__header">
+        <h2 id="diag-panel-title" class="diag-panel__title">Connection Details</h2>
+        <button id="diag-panel-close" class="icon-btn diag-panel__close"
+                aria-label="Close connection details">✕</button>
+      </div>
+      <p class="diag-panel__note">
+        This information is read-only and updates live while a connection is in progress.
+        Share it with support if you encounter a persistent connection failure.
+      </p>
+      <div id="diag-panel-content" class="diag-panel__content" aria-live="polite" aria-atomic="true">
+        <!-- Rendered by js/diagnostics.js -->
+      </div>
     </div>
   </div>
 

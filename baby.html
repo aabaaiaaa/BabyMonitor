@@ -338,6 +338,18 @@
           </div>
         </section>
 
+        <!-- Connection diagnostics (TASK-059): live-updated read-only technical info -->
+        <section class="settings-group" aria-labelledby="baby-diag-label">
+          <h3 id="baby-diag-label">Connection Details</h3>
+          <p class="settings-hint">
+            Read-only technical information about the connection.
+            Updates live. Share with support if the connection persistently fails.
+          </p>
+          <div id="baby-diag-content" class="diag-panel__content" aria-live="polite" aria-atomic="true">
+            <!-- Rendered by js/diagnostics.js via baby.js -->
+          </div>
+        </section>
+
         <section class="settings-group">
           <button id="btn-disconnect" class="action-btn action-btn--danger">Disconnect</button>
         </section>

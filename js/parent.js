@@ -49,6 +49,9 @@ import {
 import { showCompatWarnings } from './browser-compat.js';
 import { showNotificationPermissionScreen } from './notifications.js';
 import { maybeShowPwaInstallBanner } from './pwa-install.js';
+import {
+  updateDiag, resetDiag, renderDiag, recordBackupIdTried,
+} from './diagnostics.js';
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -363,6 +366,12 @@ const bgBannerDismiss     = document.getElementById('bg-banner-dismiss');
 // PWA install prompt (TASK-052)
 const pwaInstallBanner    = document.getElementById('pwa-install-banner');
 
+// Connection diagnostics panel (TASK-059)
+const diagPanel           = document.getElementById('diag-panel');
+const diagPanelContent    = document.getElementById('diag-panel-content');
+const diagPanelClose      = document.getElementById('diag-panel-close');
+const btnShowDiag         = document.getElementById('btn-show-diag');
+
 // ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
@@ -671,6 +680,10 @@ async function startPeerJsPairing() {
 
   if (peerjsScanStatus) peerjsScanStatus.textContent = 'Connecting to pairing server…';
 
+  // TASK-059: Reset diagnostics for this fresh pairing attempt
+  resetDiag();
+  updateDiag({ method: 'peerjs', peerJsServerStatus: 'registering' });
+
   // Unsubscribe any previous status listener to prevent duplicates
   _peerStatusUnsub?.();
 
@@ -679,11 +692,16 @@ async function startPeerJsPairing() {
     // Only update UI while the PeerJS pairing step is visible
     if (pairingPeerjsStep?.classList.contains('hidden')) return;
 
+    // TASK-059: Mirror PeerJS server status into diagnostics
+    updateDiag({ peerJsServerStatus: status });
+
     if (status === 'disconnected') {
       if (peerjsScanStatus) peerjsScanStatus.textContent = 'Reconnecting to pairing server…';
     } else if (status === 'error') {
       const msg = detail?.message ?? 'PeerJS connection error. Try Offline QR pairing.';
       if (peerjsScanStatus) peerjsScanStatus.textContent = msg;
+      // TASK-059: Record PeerJS error in diagnostics
+      updateDiag({ peerJsError: msg, lastError: msg });
 
       // Offer a one-tap fallback to Offline QR when the server is unreachable
       if (detail?.serverUnavailable || detail?.type === PEER_ERROR.LIBRARY_UNAVAILABLE) {
@@ -704,9 +722,13 @@ async function startPeerJsPairing() {
     if (getPeerStatus() === 'ready') {
       // Already registered — go straight to scanning; no server round-trip needed.
       if (peerjsScanStatus) peerjsScanStatus.textContent = 'Scan the QR code on the baby device.';
+      // TASK-059: Record the already-active peer ID
+      updateDiag({ localPeerId: getLocalPeerId(), peerJsServerStatus: 'ready' });
     } else {
       await initPeer(peerjsServerConfig);
       if (peerjsScanStatus) peerjsScanStatus.textContent = 'Scan the QR code on the baby device.';
+      // TASK-059: Record local peer ID now that initPeer has resolved
+      updateDiag({ localPeerId: getLocalPeerId(), peerJsServerStatus: 'ready' });
     }
 
     const babyPeerId = await scanSingle(peerjsScanVideo, {
@@ -807,6 +829,10 @@ async function startOfflinePairing() {
 
   if (pairingStatusOffline) pairingStatusOffline.textContent = 'Scan the QR grid shown on the baby device.';
 
+  // TASK-059: Reset diagnostics for this fresh offline pairing attempt
+  resetDiag();
+  updateDiag({ method: 'offline' });
+
   try {
     // Step 1: scan baby's offer grid
     const offerJson = await scanMulti(offlineScanVideo, {
@@ -827,17 +853,22 @@ async function startOfflinePairing() {
     // Step 2: generate SDP answer from offer
     const answerJson = await offlineParentReceiveOffer(offerJson, {
       onReady(conn) {
+        // TASK-059: Update RTC diagnostics from the live peer connection
+        _watchRtcDiagnostics(conn.peerConnection);
         stopScanner();
         addMonitor({ ...conn, deviceId: tempDeviceId });
         showDashboard();
       },
       onState(s) {
+        // TASK-059: RTC state changes are tracked automatically by _watchRtcDiagnostics
+        // (registered in onReady). Mirror terminal states into the last-error field.
         // TASK-030: offline path — show reconnecting state; baby handles ICE restart
         if (s === 'reconnecting') {
           _updateMonitorConnStatus(tempDeviceId, 'reconnecting');
         } else if (s === 'connected') {
           _updateMonitorConnStatus(tempDeviceId, 'connected');
         } else if (s === 'disconnected' || s === 'failed') {
+          updateDiag({ lastError: s === 'failed' ? 'Connection failed' : 'Connection lost' });
           _updateMonitorConnStatus(tempDeviceId, 'disconnected');
           // No backup pool for offline connections — show re-pair prompt directly
           _showReconnectFailedBanner(tempDeviceId);
@@ -847,6 +878,12 @@ async function startOfflinePairing() {
         handleDataMessage(tempDeviceId, msg);
       },
     });
+
+    // TASK-059: Count ICE candidates gathered from the answer JSON
+    try {
+      const parsed = JSON.parse(answerJson);
+      updateDiag({ rtcIceCandidatesGathered: parsed.candidates?.length ?? 0 });
+    } catch (_) { /* ignore JSON parse errors */ }
 
     // Step 3: show answer as QR grid for baby to scan
     if (offlineScanVideo.parentElement) offlineScanVideo.parentElement.classList.add('hidden');
@@ -863,7 +900,28 @@ async function startOfflinePairing() {
     }
   } catch (err) {
     console.error('[parent] Offline pairing error:', err);
+    updateDiag({ lastError: err.message ?? 'Offline pairing error' });
   }
+}
+
+/**
+ * TASK-059: Attach listeners to an RTCPeerConnection to keep diagnostics
+ * updated with live connection and ICE state.
+ * @param {RTCPeerConnection|null} pc
+ */
+function _watchRtcDiagnostics(pc) {
+  if (!pc) return;
+
+  const update = () => {
+    updateDiag({
+      rtcConnectionState:    pc.connectionState     ?? null,
+      rtcIceConnectionState: pc.iceConnectionState  ?? null,
+    });
+  };
+
+  update(); // Capture current state immediately
+  pc.addEventListener('connectionstatechange',    update);
+  pc.addEventListener('iceconnectionstatechange', update);
 }
 
 // ---------------------------------------------------------------------------
@@ -1726,6 +1784,8 @@ async function _attemptParentReconnect(deviceId, originalId, attempt) {
   const targetId = reconnect.poolIds[idIndex];
   console.log(`[parent] Reconnect attempt ${attempt}/${PARENT_RECONNECT_MAX_ATTEMPTS}`
               + ` to ${targetId} (TASK-030)`);
+  // TASK-059: Record this backup ID in diagnostics
+  recordBackupIdTried(targetId);
 
   // Update overlay text to show progress
   const connOverlay = entry.panelEl?.querySelector('.monitor-panel__conn-overlay');
@@ -1882,6 +1942,7 @@ function _showReconnectFailedBanner(deviceId) {
   banner.innerHTML = `
     📡 <strong>${escapeHtml(entry.label)}</strong> disconnected — could not reconnect automatically.
     <button class="alert-banner__repair-btn action-btn action-btn--small">Re-pair</button>
+    <button class="alert-banner__diag-btn action-btn action-btn--small action-btn--secondary">Connection details</button>
     <button class="alert-banner__dismiss" aria-label="Dismiss">✕</button>
   `;
 
@@ -1889,6 +1950,11 @@ function _showReconnectFailedBanner(deviceId) {
     banner.remove();
     removeMonitor(deviceId);
     showPairing();
+  });
+
+  // TASK-059: "Connection details" button opens the diagnostics panel
+  banner.querySelector('.alert-banner__diag-btn')?.addEventListener('click', () => {
+    _openDiagPanel();
   });
 
   banner.querySelector('.alert-banner__dismiss')?.addEventListener('click', () => {
@@ -4770,6 +4836,46 @@ document.getElementById('settings-back')?.addEventListener('click', () => {
     shareParentStatus.textContent = '';
     shareParentStatus.className = 'settings-status';
   }
+});
+
+// ---------------------------------------------------------------------------
+// Connection diagnostics panel (TASK-059)
+// ---------------------------------------------------------------------------
+
+/** @type {(() => void)|null} Cleanup function from renderDiag (removes live-update listener) */
+let _diagPanelCleanup = null;
+
+/**
+ * Open the diagnostics panel and start live-updating its content.
+ */
+function _openDiagPanel() {
+  if (!diagPanel || !diagPanelContent) return;
+  // Render current state and register for live updates
+  _diagPanelCleanup?.();
+  _diagPanelCleanup = renderDiag(diagPanelContent, { liveUpdate: true });
+  diagPanel.classList.remove('hidden');
+}
+
+/**
+ * Close the diagnostics panel and stop live updates.
+ */
+function _closeDiagPanel() {
+  _diagPanelCleanup?.();
+  _diagPanelCleanup = null;
+  diagPanel?.classList.add('hidden');
+}
+
+// Close button
+diagPanelClose?.addEventListener('click', _closeDiagPanel);
+
+// Close panel when clicking the backdrop (outside the inner box)
+diagPanel?.addEventListener('click', (e) => {
+  if (e.target === diagPanel) _closeDiagPanel();
+});
+
+// Settings screen "View connection details" button
+btnShowDiag?.addEventListener('click', () => {
+  _openDiagPanel();
 });
 
 // ---------------------------------------------------------------------------
