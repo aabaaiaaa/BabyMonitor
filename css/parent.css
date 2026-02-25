@@ -148,7 +148,11 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  padding: max(var(--space-sm), env(safe-area-inset-top)) var(--space-md) var(--space-sm);
+  /* safe-area-inset-left/right handles iPhone notch in landscape orientation */
+  padding: max(var(--space-sm), env(safe-area-inset-top))
+           max(var(--space-md), env(safe-area-inset-right))
+           var(--space-sm)
+           max(var(--space-md), env(safe-area-inset-left));
   background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border);
   position: sticky;
@@ -295,7 +299,11 @@
    Responsive grid — grows from 1 to up to 4 panels.
    -------------------------------------------------------------------------- */
 .monitor-grid {
-  padding: var(--space-md);
+  /* Honour safe-area insets on left/right/bottom for landscape phones with notch */
+  padding: var(--space-md)
+           max(var(--space-md), env(safe-area-inset-right))
+           max(var(--space-md), env(safe-area-inset-bottom))
+           max(var(--space-md), env(safe-area-inset-left));
   display: grid;
   gap: var(--space-md);
   grid-template-columns: 1fr;
@@ -303,16 +311,9 @@
   overflow-y: auto;
 }
 
-/* 2 monitors: 2 columns on wider screens */
-.monitor-grid[data-count="2"] {
-  grid-template-columns: repeat(2, 1fr);
-}
-
-/* 3 or 4 monitors: 2 columns */
-.monitor-grid[data-count="3"],
-.monitor-grid[data-count="4"] {
-  grid-template-columns: repeat(2, 1fr);
-}
+/* Multi-monitor: default to 1 column on narrow phones.
+   2-column layout kicks in at 540px where each panel is ≥246px wide — enough
+   to show the video feed and controls without cramping. */
 
 /* Single monitor: fill the full height of the available dashboard area */
 .monitor-grid[data-count="1"] {
@@ -974,13 +975,27 @@
 }
 
 /* --------------------------------------------------------------------------
-   Responsive overrides — tablet and wider
+   Responsive overrides — 540px+ (landscape phones / small tablets)
+   At this width each monitor panel is ≥246px wide, comfortably showing the
+   video thumbnail and control buttons for 2-4 baby monitors side by side.
+   -------------------------------------------------------------------------- */
+@media (min-width: 540px) {
+  .monitor-grid[data-count="2"],
+  .monitor-grid[data-count="3"],
+  .monitor-grid[data-count="4"] {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Responsive overrides — tablet and wider (768px+)
    -------------------------------------------------------------------------- */
 @media (min-width: 768px) {
   .mode-select__cards {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  /* All multi-monitor grids default to 2 columns at tablet width */
   .monitor-grid {
     grid-template-columns: repeat(2, 1fr);
   }

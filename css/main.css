@@ -1207,6 +1207,7 @@ textarea {
 
 .settings-field__input {
   width: 100%;
+  min-height: var(--touch-target);
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -1249,9 +1250,9 @@ textarea {
   color: var(--color-text-inverse);
 }
 
-/* Compact action button variant — smaller padding/font for inline use */
+/* Compact action button variant — smaller padding/font for inline use.
+   min-height is NOT removed so the 44px touch target is always met. */
 .action-btn--small {
-  min-height: unset;
   padding: var(--space-xs) var(--space-sm);
   font-size: var(--font-size-sm);
 }

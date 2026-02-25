@@ -226,7 +226,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Implement a settings screen accessible from both monitor views. Global settings stored in `localStorage` include: default soothing mode, default music track, fade-out timer presets, preferred video quality, speak-through mode (push-to-talk vs toggle), and whether remote mode is preferred. Per-device settings stored within each device's saved profile include: noise alert threshold, movement detection sensitivity, and low battery alert threshold. This ensures per-device values travel with the device profile (TASK-023) rather than overwriting a single global value when multiple baby monitors are in use. On the baby monitor side, store its assigned device ID persistently. On the parent side, store all paired device profiles so the parent dashboard can show expected devices and flag which are currently connected.
 
 ### TASK-033: Implement responsive UI and mobile-first layout
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-015, TASK-021
 - **Description**: Ensure both monitor UIs are fully usable on a phone held in portrait or landscape orientation, as well as on a tablet. The baby monitor UI should be fullscreen with no distracting chrome. The parent dashboard should adapt its grid layout based on the number of connected monitors and the available screen area. Use CSS Grid and media queries. Ensure all touch targets are large enough (minimum 44×44 px). Test the layout at common mobile resolutions (375px, 414px, 768px wide).

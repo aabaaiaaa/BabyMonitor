@@ -200,8 +200,8 @@ body.baby-screen {
   bottom: max(var(--space-lg), env(safe-area-inset-bottom));
   left: max(var(--space-md), env(safe-area-inset-left));
   z-index: var(--z-overlay);
-  width: 40px;
-  height: 40px;
+  width: var(--touch-target);
+  height: var(--touch-target);
   padding: 0;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.45);
@@ -435,7 +435,11 @@ body.baby-screen .pairing-step__desc {
 /* --------------------------------------------------------------------------
    Responsive overrides for baby view
    -------------------------------------------------------------------------- */
-@media (min-width: 768px) {
+
+/* 600px+ covers most phones in landscape (e.g. 375px portrait → 667px landscape)
+   and all tablets. In this range the settings overlay is shown as a centred dialog
+   rather than a mobile bottom-sheet, giving a better landscape experience. */
+@media (min-width: 600px) {
   .baby-settings-overlay {
     align-items: center;
   }
@@ -443,6 +447,12 @@ body.baby-screen .pairing-step__desc {
   .baby-settings-overlay__inner {
     border-radius: var(--radius-lg);
     max-width: 480px;
+    margin: var(--space-md);
+  }
+}
+
+@media (min-width: 768px) {
+  .baby-settings-overlay__inner {
     margin: var(--space-lg);
   }
 }
