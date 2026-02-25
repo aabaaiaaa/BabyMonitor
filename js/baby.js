@@ -3765,3 +3765,63 @@ window.__testCancelFadeTimer = () => cancelFadeTimer();
  * @returns {number}
  */
 window.__testGetFadeRemaining = () => state.fadeRemaining ?? 0;
+
+// ---------------------------------------------------------------------------
+// E2E test hooks — audio file transfer (TASK-068)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return basic info about the in-progress incoming file transfer, or null if
+ * no transfer is currently active.  The chunks array is intentionally omitted
+ * because it can be very large.
+ *
+ * @returns {{ id: string, name: string, totalChunks: number, received: number } | null}
+ */
+window.__testGetIncomingTransfer = () => {
+  if (!_incomingTransfer) return null;
+  return {
+    id:          _incomingTransfer.id,
+    name:        _incomingTransfer.name,
+    totalChunks: _incomingTransfer.totalChunks,
+    received:    _incomingTransfer.received,
+  };
+};
+
+/**
+ * Return the IndexedDB ID of the most recently received and stored audio file,
+ * or null if no file has been received yet in this session.
+ * @returns {string|null}
+ */
+window.__testGetReceivedFileId = () => _receivedFileDbId;
+
+/**
+ * Return a promise that resolves to the full list of audio files stored in
+ * IndexedDB on the baby device.  Each entry has at minimum: id, name, size,
+ * dateAdded.
+ * @returns {Promise<Array<{id:string,name:string,size:number,dateAdded:number}>>}
+ */
+window.__testListAudioFiles = () => listAudioFiles();
+
+/**
+ * Trigger playback of the most recently received audio file (_receivedFileDbId).
+ * Returns a promise that resolves once the playback attempt completes (or rejects
+ * on decode / AudioContext error).  After this call succeeds you can verify that
+ * __testGetAudioContextState() === 'running' and __testIsFileAudioPlaying() === true.
+ * @returns {Promise<void>}
+ */
+window.__testPlayReceivedFile = () => _playReceivedFile();
+
+/**
+ * Return true if the transferred-file AudioBufferSourceNode is currently active
+ * (i.e. the file is playing, not paused or stopped).
+ * @returns {boolean}
+ */
+window.__testIsFileAudioPlaying = () => _audioPlaying;
+
+/**
+ * Return true if the baby-side transfer progress overlay (#baby-transfer-status)
+ * is currently visible (i.e. a file transfer is in progress from the baby's view).
+ * @returns {boolean}
+ */
+window.__testIsTransferProgressVisible = () =>
+  babyTransferStatus != null && !babyTransferStatus.classList.contains('hidden');

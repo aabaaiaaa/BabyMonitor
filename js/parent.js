@@ -132,6 +132,14 @@ const _lastTransferredFile = new Map();
 /** Chunk size for file transfer: 16 KB (safe for all WebRTC implementations). */
 const FILE_CHUNK_SIZE = 16 * 1024;
 
+/**
+ * Test-only: per-chunk delay (ms) injected into the transfer loop.
+ * Default 0 (no delay).  Set via window.__testSetTransferChunkDelay() to
+ * slow the loop enough for E2E interrupt tests to intercept mid-transfer.
+ * @type {number}
+ */
+let _testTransferChunkDelayMs = 0;
+
 // ---------------------------------------------------------------------------
 // Voice recording state (TASK-043)
 // ---------------------------------------------------------------------------
@@ -3113,8 +3121,14 @@ cpSendAudio?.addEventListener('click', async () => {
       _activeTransfer.sentChunks = seq + 1;
       _updateTransferProgress(seq + 1, totalChunks);
 
-      // Yield to event loop every 10 chunks to keep the page responsive
-      if (seq % 10 === 9) await new Promise(r => setTimeout(r, 0));
+      // Yield to event loop: always when a test delay is set (to allow E2E
+      // tests to intercept mid-transfer), otherwise every 10 chunks to keep
+      // the page responsive without excessive overhead.
+      if (_testTransferChunkDelayMs > 0) {
+        await new Promise(r => setTimeout(r, _testTransferChunkDelayMs));
+      } else if (seq % 10 === 9) {
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
 
     // Step 3: send completion marker (only if not aborted mid-transfer)
@@ -5112,4 +5126,74 @@ window.__testGetLastNotification = () => _lastNotificationRecord;
  */
 window.__testSetAlertToneMuted = (muted) => {
   _alertToneMuted = muted;
+};
+
+// ---------------------------------------------------------------------------
+// E2E test hooks — audio file transfer (TASK-068)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the current active file transfer state, or null if no transfer is
+ * in progress.  The returned object includes id, deviceId, totalChunks, and
+ * sentChunks so that tests can verify progress without accessing internals.
+ * @returns {{ id: string, deviceId: string, totalChunks: number, sentChunks: number } | null}
+ */
+window.__testGetActiveTransfer = () => _activeTransfer;
+
+/**
+ * Programmatically open the control panel for a specific baby device.
+ * Equivalent to the user tapping the panel or the controls button.
+ * @param {string} deviceId
+ */
+window.__testOpenControlPanel = (deviceId) => openControlPanel(deviceId);
+
+/**
+ * Save a file to the parent's local audio library (IndexedDB).
+ * Accepts base64-encoded audio data so it can be called from page.evaluate
+ * with a data URI or raw base64 string.
+ *
+ * @param {string} name        — display name for the file
+ * @param {string} base64Data  — base64-encoded audio bytes (no data URI prefix)
+ * @param {string} [mimeType='audio/wav']
+ * @returns {Promise<string>}   the IndexedDB record ID
+ */
+window.__testSaveAudioFileToParentLibrary = async (name, base64Data, mimeType = 'audio/wav') => {
+  const binary = atob(base64Data);
+  const bytes  = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mimeType });
+  return saveAudioFile({ name, blob, size: bytes.byteLength, duration: 0, type: 'uploaded', dateAdded: Date.now() });
+};
+
+/**
+ * Trigger a library-file send to the currently connected baby device.
+ * If a transfer is already in progress this fires alert() confirming the
+ * no-concurrent-transfers rule; E2E tests can catch the dialog event.
+ *
+ * @param {string} id    — IndexedDB record ID returned by __testSaveAudioFileToParentLibrary
+ * @param {string} name  — file name (shown in the alert message)
+ */
+window.__testSendLibraryFileToBaby = (id, name) => _sendLibraryFileToBaby(id, name);
+
+/**
+ * Set the per-chunk delay (ms) used by the file transfer loop.
+ * Pass 0 (default) for normal production behaviour (no delay).
+ * Pass a positive value (e.g. 50) to slow the loop so E2E tests have a
+ * reliable window to intercept and close the data channel mid-transfer.
+ * @param {number} ms
+ */
+window.__testSetTransferChunkDelay = (ms) => { _testTransferChunkDelayMs = ms; };
+
+/**
+ * Close the data channel for the given monitor device.
+ * The in-progress transfer loop will catch the resulting send error on its
+ * next iteration and clean up _activeTransfer and the progress UI — exactly
+ * as if the WebRTC connection had dropped mid-transfer.
+ *
+ * @param {string} deviceId
+ */
+window.__testCloseMonitorDataChannel = (deviceId) => {
+  const entry = monitors.get(deviceId);
+  if (!entry?.conn?.dataChannel) return;
+  try { entry.conn.dataChannel.close(); } catch (_) { /* ignore */ }
 };
