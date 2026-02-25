@@ -12,6 +12,7 @@
 import { lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS } from './storage.js';
 import { renderSafeSleepContent } from './safe-sleep.js';
 import { showCompatWarnings } from './browser-compat.js';
+import { isOnboardingRequired, startOnboarding, resetOnboarding } from './onboarding.js';
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -30,6 +31,7 @@ const safeSleepScreen   = document.getElementById('safe-sleep-screen');
 const safeSleepBack     = document.getElementById('safe-sleep-back');
 const settingsScreen    = document.getElementById('settings-screen');
 const settingsBack      = document.getElementById('settings-back');
+const onboardingWizard  = document.getElementById('onboarding-wizard');
 
 // ---------------------------------------------------------------------------
 // Browser compatibility check (TASK-045)
@@ -45,7 +47,18 @@ const _compatResult = showCompatWarnings();
 function init() {
   setupTheme();
   maybePromptDarkMode();
-  homeScreen?.classList.remove('hidden');
+
+  // First-run onboarding (TASK-031): show the setup wizard on the very first
+  // open. On subsequent opens (ONBOARDING_DONE=true) show the home screen
+  // directly, which already shows role selection.
+  if (isOnboardingRequired()) {
+    startOnboarding(onboardingWizard, () => {
+      // onSkip callback: user chose to bypass the wizard
+      homeScreen?.classList.remove('hidden');
+    });
+  } else {
+    homeScreen?.classList.remove('hidden');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +274,17 @@ document.getElementById('home-btn-clear-peerjs')?.addEventListener('click', () =
     statusEl.textContent = 'Custom PeerJS server cleared. Using public PeerJS server.';
     statusEl.className   = 'settings-status';
   }
+});
+
+// ---------------------------------------------------------------------------
+// Re-run setup wizard (TASK-031)
+// ---------------------------------------------------------------------------
+
+document.getElementById('home-btn-rerun-setup')?.addEventListener('click', () => {
+  // Reset all onboarding flags and reload the page so the wizard runs again
+  resetOnboarding();
+  settingsScreen?.classList.add('hidden');
+  window.location.reload();
 });
 
 // ---------------------------------------------------------------------------

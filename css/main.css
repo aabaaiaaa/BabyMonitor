@@ -1277,6 +1277,357 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   Onboarding wizard (TASK-031)
+   Full-screen overlay shown on first run; hidden on subsequent opens.
+   Steps 1–4 run here; pairing (5), labelling (6), and tour (7) continue
+   in baby.html / parent.html via the ?onboarding=1 query parameter.
+   -------------------------------------------------------------------------- */
+
+/* Full-screen backdrop */
+.onboarding-wizard {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  overflow-y: auto;
+  background: var(--color-bg);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-lg) var(--space-md) var(--space-xl);
+}
+
+/* Content area — max-width matches other screen inner containers */
+.onboarding-wizard__inner {
+  width: 100%;
+  max-width: 560px;
+}
+
+/* ── Progress indicator ──────────────────────────────────────────────────── */
+.onboarding-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-xl);
+}
+
+.onboarding-progress__steps {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.onboarding-progress__dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-border);
+  transition: background var(--transition-base), transform var(--transition-base);
+}
+
+.onboarding-progress__dot.active {
+  background: var(--color-primary);
+  transform: scale(1.3);
+}
+
+.onboarding-progress__dot.done {
+  background: var(--color-success);
+}
+
+.onboarding-progress__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ── Individual steps ────────────────────────────────────────────────────── */
+.onboarding-step {
+  animation: fade-in var(--transition-base) both;
+}
+
+.onboarding-step__icon {
+  font-size: 3rem;
+  display: block;
+  text-align: center;
+  margin-bottom: var(--space-md);
+}
+
+.onboarding-step__title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+  text-align: center;
+}
+
+.onboarding-step__desc {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  margin-bottom: var(--space-lg);
+  text-align: center;
+}
+
+.onboarding-step__hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-lg);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.onboarding-step__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.onboarding-step__status {
+  min-height: 1.4em;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: var(--space-xs);
+}
+
+.onboarding-step__footnote {
+  margin-top: var(--space-xl);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ── Step 1: Role selection cards ────────────────────────────────────────── */
+.onboarding-role-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.onboarding-role-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: var(--space-lg);
+  background: var(--color-bg-surface);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+              transform var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.onboarding-role-card:hover,
+.onboarding-role-card:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+  outline: none;
+}
+
+.onboarding-role-card:active {
+  transform: scale(0.98);
+}
+
+.onboarding-role-card__icon {
+  font-size: 2rem;
+  display: block;
+  margin-bottom: var(--space-xs);
+}
+
+.onboarding-role-card__label {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.onboarding-role-card__desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* ── Step 3: Notification denied explanation ─────────────────────────────── */
+.onboarding-notif-denied {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: #fff3cd;
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+}
+
+.dark-mode .onboarding-notif-denied {
+  background: rgba(255, 193, 7, 0.1);
+  border-left-color: var(--color-warning);
+}
+
+.onboarding-notif-denied__msg {
+  font-weight: 700;
+  margin-bottom: var(--space-xs);
+  color: #856404;
+}
+
+.dark-mode .onboarding-notif-denied__msg {
+  color: #ffe08a;
+}
+
+.onboarding-notif-denied__hint {
+  font-size: var(--font-size-sm);
+  color: #664d03;
+  margin-bottom: var(--space-md);
+}
+
+.dark-mode .onboarding-notif-denied__hint {
+  color: #f0d080;
+}
+
+/* ── Onboarding context hint (shown in baby.html / parent.html) ─────────── */
+.onboarding-hint {
+  background: #e0f2fe;
+  border-left: 4px solid #0284c7;
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  border-radius: var(--radius-sm);
+}
+
+.dark-mode .onboarding-hint {
+  background: rgba(2, 132, 199, 0.12);
+  border-left-color: #38bdf8;
+}
+
+.onboarding-hint__inner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.onboarding-hint__icon {
+  font-size: 1.125rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.onboarding-hint__text {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: #0c4a6e;
+  line-height: 1.5;
+}
+
+.dark-mode .onboarding-hint__text {
+  color: #bae6fd;
+}
+
+.onboarding-hint__text strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.onboarding-hint__text p {
+  margin: 0;
+}
+
+.onboarding-hint__dismiss {
+  flex-shrink: 0;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0c4a6e;
+  font-size: 1rem;
+  opacity: 0.7;
+  border-radius: var(--radius-sm);
+}
+
+.dark-mode .onboarding-hint__dismiss {
+  color: #bae6fd;
+}
+
+.onboarding-hint__dismiss:hover,
+.onboarding-hint__dismiss:focus-visible {
+  opacity: 1;
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ── Parent dashboard tour modal (shown after first connection) ──────────── */
+.onboarding-tour-modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.onboarding-tour-modal__box {
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  max-width: 480px;
+  width: 100%;
+  box-shadow: var(--shadow-lg);
+  animation: fade-in var(--transition-base) both;
+}
+
+.onboarding-tour-modal__title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
+  color: var(--color-text);
+}
+
+.onboarding-tour-modal__intro {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-md);
+}
+
+.onboarding-tour-modal__list {
+  list-style: decimal;
+  margin: 0 0 var(--space-lg) var(--space-lg);
+  padding: 0;
+}
+
+.onboarding-tour-modal__list li {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+  line-height: 1.5;
+  padding-left: var(--space-xs);
+}
+
+.onboarding-tour-modal__close-btn {
+  width: 100%;
+}
+
+/* Tablet: show role cards side by side */
+@media (min-width: 560px) {
+  .onboarding-role-cards {
+    flex-direction: row;
+  }
+
+  .onboarding-role-card {
+    flex: 1;
+  }
+}
+
+/* --------------------------------------------------------------------------
    Animations
    -------------------------------------------------------------------------- */
 @keyframes fade-in {

@@ -214,7 +214,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
   Display a connection status indicator (connected / reconnecting / disconnected) on both monitor UIs throughout. If auto-reconnect fails after all retries, show a "Re-pair devices" prompt alongside the connection diagnostics panel (TASK-059).
 
 ### TASK-031: Implement first-run onboarding and setup wizard
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-006, TASK-015, TASK-021, TASK-044, TASK-047
 - **Description**: Build a guided first-run onboarding flow that runs the first time the app is opened (detected via `localStorage` flag). Walk the user through: (1) choosing baby monitor or parent monitor role, (2) displaying the safe sleep information screen (TASK-044) with a mandatory acknowledgement checkbox — the user cannot proceed until this is ticked, (3) the notification permission request step (TASK-047), (4) granting camera/microphone permissions, (5) pairing the devices using the chosen connection method — for PeerJS this is a single QR scan; for offline QR this is a multi-round grid scanning process — with clear annotated instructions for each, (6) labelling the baby monitor, (7) a brief tour of the parent dashboard. On subsequent opens, skip directly to role selection. Provide a "Help / Re-run setup" link in settings.

@@ -251,6 +251,7 @@ async function init() {
   await requestWakeLock();
   await showNotificationPermissionScreen(notifScreen); // TASK-047
   showDashboard();
+  _initOnboardingHint(); // TASK-031
 
   // Check URL params before deciding which screen to show first.
   const urlParams = new URLSearchParams(window.location.search);
@@ -291,6 +292,57 @@ darkModeToggle?.addEventListener('click', () => {
   saveSetting(SETTING_KEYS.THEME, isDark ? 'dark' : 'light');
   if (themeIcon) themeIcon.textContent = isDark ? '☀️' : '🌙';
 });
+
+// ---------------------------------------------------------------------------
+// Onboarding hint and dashboard tour (TASK-031)
+// ---------------------------------------------------------------------------
+//
+// When parent.html is opened with ?onboarding=1 (navigated here from the
+// first-run setup wizard in index.html):
+//   • _initOnboardingHint() shows a dismissible context banner at the top
+//     of the pairing wizard to guide the user through connection.
+//   • _maybeShowTour() is called by addMonitor() after the first baby device
+//     connects; it displays a brief feature tour modal.
+
+/** True when parent.html was launched from the first-run setup wizard. */
+const _inOnboarding = new URLSearchParams(window.location.search).get('onboarding') === '1';
+
+/** Prevents showing the tour more than once per session. */
+let _tourShown = false;
+
+/**
+ * Show the onboarding context hint banner if launched from the setup wizard.
+ */
+function _initOnboardingHint() {
+  if (!_inOnboarding) return;
+
+  const hintEl = document.getElementById('onboarding-hint');
+  if (!hintEl) return;
+
+  hintEl.classList.remove('hidden');
+
+  document.getElementById('onboarding-hint-dismiss')?.addEventListener('click', () => {
+    hintEl.classList.add('hidden');
+  }, { once: true });
+}
+
+/**
+ * Show the dashboard feature tour modal after the first baby device connects
+ * during onboarding. No-op if not in onboarding mode or tour already shown.
+ */
+function _maybeShowTour() {
+  if (!_inOnboarding || _tourShown) return;
+  _tourShown = true;
+
+  const tourEl = document.getElementById('onboarding-tour');
+  if (!tourEl) return;
+
+  tourEl.classList.remove('hidden');
+
+  tourEl.querySelector('#onboarding-tour-close')?.addEventListener('click', () => {
+    tourEl.classList.add('hidden');
+  }, { once: true });
+}
 
 // ---------------------------------------------------------------------------
 // Wake Lock (TASK-003)
@@ -819,6 +871,10 @@ function addMonitor(conn) {
   // E2E test hook (TASK-064): expose the full monitor entry so tests can inspect
   // the gainNode value (e.g. during speak-through ducking) and the analyserNode.
   window.__testMonitorEntry = entry;
+
+  // TASK-031: Show the dashboard feature tour after the first baby connects
+  // during the first-run onboarding flow.
+  _maybeShowTour();
 }
 
 /**

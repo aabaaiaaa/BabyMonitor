@@ -57,6 +57,122 @@
     <button id="compat-banner-dismiss" class="compat-banner__dismiss" aria-label="Dismiss browser warning">✕</button>
   </div>
 
+  <!-- Onboarding wizard (TASK-031) — shown on first run only.
+       Hidden on subsequent opens; re-opened via "Help / Re-run setup" in settings.
+       Steps 1–4 run here; steps 5–7 continue in baby.html / parent.html. -->
+  <section id="onboarding-wizard" class="onboarding-wizard hidden" aria-label="First-time setup">
+    <div class="onboarding-wizard__inner">
+
+      <!-- Progress indicator -->
+      <div id="onboarding-progress-bar" class="onboarding-progress"
+           role="progressbar" aria-label="Setup progress"
+           aria-valuemin="1" aria-valuenow="1" aria-valuemax="4">
+        <div class="onboarding-progress__steps" id="onboarding-steps-indicator">
+          <!-- Step dots rendered by js/onboarding.js -->
+        </div>
+        <p class="onboarding-progress__label" id="onboarding-progress-label" aria-live="polite">
+          Step 1 of 4
+        </p>
+      </div>
+
+      <!-- ── Step 1: Role selection ─────────────────────────────────────── -->
+      <div id="onboarding-step-role" class="onboarding-step" data-step="1">
+        <div class="onboarding-step__icon" aria-hidden="true">👋</div>
+        <h2 class="onboarding-step__title">Welcome to Baby Monitor</h2>
+        <p class="onboarding-step__desc">
+          Let's get your device set up in a few quick steps.
+          First, what role is this device playing?
+        </p>
+
+        <div class="onboarding-role-cards">
+
+          <button class="onboarding-role-card" id="onboarding-btn-baby"
+                  aria-label="Set up as baby monitor — place this device near the baby">
+            <span class="onboarding-role-card__icon" aria-hidden="true">🍼</span>
+            <span class="onboarding-role-card__label">Baby Monitor</span>
+            <span class="onboarding-role-card__desc">
+              This device stays near the baby and streams video and audio to the parent device.
+            </span>
+          </button>
+
+          <button class="onboarding-role-card" id="onboarding-btn-parent"
+                  aria-label="Set up as parent monitor — keep this device with you">
+            <span class="onboarding-role-card__icon" aria-hidden="true">📱</span>
+            <span class="onboarding-role-card__label">Parent Monitor</span>
+            <span class="onboarding-role-card__desc">
+              Keep this with you to watch the baby feed, receive alerts, and control the baby device remotely.
+            </span>
+          </button>
+
+        </div>
+
+        <p class="onboarding-step__footnote">
+          Already set up?
+          <button id="onboarding-skip-link" class="text-btn text-btn--small">
+            Skip setup
+          </button>
+        </p>
+      </div>
+
+      <!-- ── Step 2: Safe sleep guidance ───────────────────────────────── -->
+      <div id="onboarding-step-safesleep" class="onboarding-step hidden"
+           data-step="2" aria-hidden="true">
+        <div id="onboarding-safe-sleep-container">
+          <!-- Safe sleep content injected by safe-sleep.js (requireAck: true).
+               The "Confirm and continue" button is part of that content; it
+               is wired to advance to step 3 via the onAcknowledged callback. -->
+        </div>
+      </div>
+
+      <!-- ── Step 3: Notification permission ───────────────────────────── -->
+      <div id="onboarding-step-notif" class="onboarding-step hidden"
+           data-step="3" aria-hidden="true">
+        <div class="onboarding-step__icon" aria-hidden="true">🔔</div>
+        <h2 class="onboarding-step__title">Enable Notifications</h2>
+        <p class="onboarding-step__desc">
+          Allow notifications so we can alert you about baby movement, unusual sounds,
+          and low battery — even when the app is in the background or your screen is off.
+        </p>
+
+        <div id="onboarding-notif-actions" class="onboarding-step__actions">
+          <button id="onboarding-notif-enable" class="action-btn">Enable Notifications</button>
+          <button id="onboarding-notif-skip" class="text-btn">Skip for now</button>
+        </div>
+
+        <div id="onboarding-notif-denied" class="onboarding-notif-denied hidden" role="alert">
+          <p class="onboarding-notif-denied__msg">Notifications are blocked.</p>
+          <p class="onboarding-notif-denied__hint">
+            You will not receive alerts when the app is in the background.
+            You can enable notifications later in your browser settings.
+          </p>
+          <button id="onboarding-notif-continue" class="action-btn">
+            Continue without notifications
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Step 4: Camera & microphone permissions ────────────────────── -->
+      <div id="onboarding-step-camera" class="onboarding-step hidden"
+           data-step="4" aria-hidden="true">
+        <div class="onboarding-step__icon" aria-hidden="true">📷</div>
+        <h2 class="onboarding-step__title">Camera &amp; Microphone</h2>
+        <p class="onboarding-step__desc" id="onboarding-camera-desc">
+          <!-- Description text set by js/onboarding.js based on chosen role -->
+        </p>
+        <p class="onboarding-step__hint">
+          When you tap <strong>Grant Access</strong>, your browser will ask for
+          permission. Tap <strong>Allow</strong> to continue.
+        </p>
+        <div class="onboarding-step__actions">
+          <button id="onboarding-camera-grant-btn" class="action-btn">Grant Access</button>
+          <button id="onboarding-camera-skip-btn" class="text-btn">I'll do this later</button>
+        </div>
+        <p id="onboarding-camera-status" class="onboarding-step__status" aria-live="polite"></p>
+      </div>
+
+    </div>
+  </section>
+
   <!-- Main home screen: mode selection -->
   <main id="home" class="home hidden" aria-label="Mode selection">
 
@@ -199,6 +315,21 @@
           <button id="home-btn-clear-peerjs" class="action-btn action-btn--secondary">Clear</button>
         </div>
         <p class="settings-status" id="home-peerjs-status" aria-live="polite"></p>
+      </section>
+
+      <!-- Help / Re-run setup (TASK-031) -->
+      <section class="settings-group" aria-labelledby="home-help-label">
+        <h3 id="home-help-label">Help</h3>
+        <p class="settings-group__desc">
+          Need to redo the initial setup — for example to change your device role,
+          re-acknowledge the safe sleep guidance, or re-run the notification permission
+          request? Use the button below to restart the setup wizard.
+        </p>
+        <div class="settings-actions">
+          <button id="home-btn-rerun-setup" class="action-btn action-btn--secondary">
+            Re-run Setup Wizard
+          </button>
+        </div>
       </section>
 
     </div>

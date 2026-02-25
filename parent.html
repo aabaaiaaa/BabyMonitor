@@ -70,6 +70,24 @@
   <!-- Pairing / setup wizard (TASK-006): shown before any baby is connected -->
   <section id="pairing-section" class="pairing-section hidden" aria-label="Pairing">
     <div class="pairing-section__inner">
+
+      <!-- Onboarding context hint (TASK-031): shown when parent.html is opened
+           with ?onboarding=1 from the setup wizard. Hidden by default;
+           displayed by js/parent.js when the query param is detected. -->
+      <div id="onboarding-hint" class="onboarding-hint hidden" role="note">
+        <div class="onboarding-hint__inner">
+          <span class="onboarding-hint__icon" aria-hidden="true">ℹ️</span>
+          <div class="onboarding-hint__text">
+            <strong>Setting up your parent device</strong>
+            <p>Choose a connection method below, then scan the QR code shown on the
+               baby device. Quick Pair (recommended) needs internet on both devices;
+               Offline QR Pair works over local Wi-Fi with no internet required.</p>
+          </div>
+          <button class="onboarding-hint__dismiss" id="onboarding-hint-dismiss"
+                  aria-label="Dismiss setup hint">✕</button>
+        </div>
+      </div>
+
       <!-- Back button: visible only when at least one monitor is already connected
            (TASK-022). Lets the user cancel adding a new monitor and return to the
            dashboard without dropping any existing connections. -->
@@ -553,6 +571,46 @@
       <!-- Content populated by js/notifications.js -->
     </div>
   </section>
+
+  <!-- Onboarding dashboard tour (TASK-031): shown after the first baby device
+       connects when parent.html was launched with ?onboarding=1.
+       Hidden by default; displayed by js/parent.js. -->
+  <div id="onboarding-tour" class="onboarding-tour-modal hidden"
+       role="dialog" aria-modal="true" aria-labelledby="onboarding-tour-title">
+    <div class="onboarding-tour-modal__box">
+      <h2 id="onboarding-tour-title" class="onboarding-tour-modal__title">
+        You're connected! 🎉
+      </h2>
+      <p class="onboarding-tour-modal__intro">
+        Here's a quick overview of your parent dashboard:
+      </p>
+      <ol class="onboarding-tour-modal__list">
+        <li>
+          <strong>Live feed</strong> — watch and listen to your baby in real time.
+          Tap the feed to open the control panel.
+        </li>
+        <li>
+          <strong>Soothing modes</strong> — remotely start candle, water, or star
+          light effects, or play music on the baby device.
+        </li>
+        <li>
+          <strong>Speak-through</strong> — tap and hold the microphone button to
+          talk to your baby. Your voice plays through the baby device's speaker.
+        </li>
+        <li>
+          <strong>Alerts</strong> — receive notifications for movement, noise,
+          and low battery — even when your screen is off.
+        </li>
+        <li>
+          <strong>Add more devices</strong> — monitor up to 4 babies at once,
+          or share the feed with another parent device using the + button.
+        </li>
+      </ol>
+      <button id="onboarding-tour-close" class="action-btn onboarding-tour-modal__close-btn">
+        Get started
+      </button>
+    </div>
+  </div>
 
   <script type="module" src="js/parent.js"></script>
 </body>

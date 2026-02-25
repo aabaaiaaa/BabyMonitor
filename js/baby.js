@@ -752,6 +752,7 @@ if (!('wakeLock' in navigator)) {
 async function init() {
   setupTheme();
   await requestWakeLock(); // TASK-003
+  _initOnboardingHint();   // TASK-031
   showPairing();
 }
 
@@ -764,6 +765,32 @@ function setupTheme() {
   if (theme === 'dark') {
     document.body.classList.add('dark-mode');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding hint (TASK-031)
+// ---------------------------------------------------------------------------
+//
+// When baby.html is opened with ?onboarding=1 (from the first-run setup wizard
+// in index.html), show a dismissible context banner at the top of the pairing
+// wizard so the user knows what to do next.
+
+/**
+ * Show the onboarding context hint banner if baby.html was launched from the
+ * first-run setup wizard (detected via the ?onboarding=1 URL parameter).
+ */
+function _initOnboardingHint() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('onboarding') !== '1') return;
+
+  const hintEl = document.getElementById('onboarding-hint');
+  if (!hintEl) return;
+
+  hintEl.classList.remove('hidden');
+
+  document.getElementById('onboarding-hint-dismiss')?.addEventListener('click', () => {
+    hintEl.classList.add('hidden');
+  }, { once: true });
 }
 
 // ---------------------------------------------------------------------------

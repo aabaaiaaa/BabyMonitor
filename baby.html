@@ -70,6 +70,24 @@
   <!-- Pairing / setup wizard (TASK-006): shown before the monitor is active -->
   <section id="pairing-section" class="pairing-section hidden" aria-label="Pairing">
     <div class="pairing-section__inner">
+
+      <!-- Onboarding context hint (TASK-031): shown when baby.html is opened
+           with ?onboarding=1 from the setup wizard. Hidden by default;
+           displayed by js/baby.js when the query param is detected. -->
+      <div id="onboarding-hint" class="onboarding-hint hidden" role="note">
+        <div class="onboarding-hint__inner">
+          <span class="onboarding-hint__icon" aria-hidden="true">ℹ️</span>
+          <div class="onboarding-hint__text">
+            <strong>Setting up your baby device</strong>
+            <p>This device stays near the baby. Choose a connection method below, then
+               follow the steps to pair with the parent device. When prompted, give the
+               device a name so you can identify it on the parent dashboard.</p>
+          </div>
+          <button class="onboarding-hint__dismiss" id="onboarding-hint-dismiss"
+                  aria-label="Dismiss setup hint">✕</button>
+        </div>
+      </div>
+
       <h2 class="pairing-section__title">Set Up Baby Monitor</h2>
 
       <!-- Step 1: connection method selection -->
