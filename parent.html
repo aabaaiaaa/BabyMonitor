@@ -300,6 +300,15 @@
         <p class="timer-countdown" id="cp-timer-countdown" aria-live="polite"></p>
       </section>
 
+      <!-- Microphone permission notice (TASK-055): shown as an informational note
+           when permission has not yet been requested (prompt state), or as an
+           error with browser settings instructions when access has been denied.
+           Content and visibility managed by _applyMicPermUI() in js/parent.js.
+           Hidden by default; aria-live="polite" for screen-reader announcements. -->
+      <div id="mic-perm-notice" class="mic-perm-notice hidden" aria-live="polite">
+        <!-- Content populated dynamically by _applyMicPermUI() in js/parent.js -->
+      </div>
+
       <!-- Speak-through (TASK-012) -->
       <section class="control-group" aria-labelledby="cp-speak-label">
         <h3 id="cp-speak-label">Speak Through</h3>

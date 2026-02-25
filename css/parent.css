@@ -1183,6 +1183,70 @@
 }
 
 /* --------------------------------------------------------------------------
+   Microphone permission notice (TASK-055)
+   Inline notice shown in the control panel when microphone permission is in
+   the 'prompt' state (informational) or 'denied' state (error + instructions).
+   Hidden when permission is 'granted' or when the Permissions API is absent.
+   -------------------------------------------------------------------------- */
+
+.mic-perm-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md, 8px);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin-bottom: var(--space-sm);
+}
+
+/* Informational variant: shown when permission has not yet been requested */
+.mic-perm-notice--info {
+  background: rgba(74, 144, 226, 0.10);
+  border: 1px solid rgba(74, 144, 226, 0.45);
+  color: var(--color-text);
+}
+
+/* Error variant: shown when permission has been denied */
+.mic-perm-notice--denied {
+  background: rgba(214, 48, 49, 0.08);
+  border: 1px solid rgba(214, 48, 49, 0.45);
+  color: var(--color-text);
+}
+
+.mic-perm-notice__icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+.mic-perm-notice__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.mic-perm-notice__body strong {
+  display: block;
+  margin-bottom: var(--space-xs, 4px);
+}
+
+.mic-perm-notice__body p {
+  margin: 0 0 var(--space-xs, 4px);
+}
+
+.mic-perm-notice__body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Per-browser re-enable instructions shown in the denied state */
+.mic-perm-notice__steps {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #888);
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
    Notification permission screen (TASK-047)
    Full-screen explanation shown before the browser permission prompt fires.
    Displayed on first use only; skipped on subsequent visits.

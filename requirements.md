@@ -425,7 +425,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Extend the soothing mode selector on both the baby device (TASK-015) and the parent's remote control panel (TASK-025) to allow light and music to run simultaneously. Add a combined mode option alongside the existing single modes. When active, the chosen light effect renders fullscreen at reduced brightness while the selected audio track plays through the speakers. The screen brightness overlay used in music-only mode (near-black screen) must not be applied in combined mode — the light effect is the visual output. The fade-out timer (TASK-014) applies to the audio only in this mode; the light effect continues until the mode is changed. Audio ducking (TASK-038) operates normally in combined mode.
 
 ### TASK-055: Implement parent-side microphone permission handling
-- **Status**: pending
+- **Status**: done
 - **Priority**: high
 - **Dependencies**: TASK-012, TASK-043
 - **Description**: Both the speak-through feature (TASK-012) and the in-app recording feature (TASK-043) require microphone access on the parent device via `getUserMedia`. Add explicit permission handling for both: before the first microphone request, show a brief explanation of why microphone access is needed (e.g. "Microphone access lets you speak to your baby or record a message"). If the parent denies permission, display a clear error message with instructions for re-enabling microphone access in their browser settings, and disable the speak-through and record buttons with a visible "Microphone access required" label. If permission is subsequently granted (e.g. the parent enables it in settings and returns), re-enable the buttons automatically. Do not silently fail.

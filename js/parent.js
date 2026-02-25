@@ -186,6 +186,24 @@ let _speakActive = false;
 let _speakDeviceId = null;
 
 // ---------------------------------------------------------------------------
+// Microphone permission state (TASK-055)
+// ---------------------------------------------------------------------------
+
+/**
+ * Current microphone permission state, as reported by the Permissions API.
+ * Null means the API is unavailable — leave all mic UI in its default state.
+ * @type {'prompt'|'granted'|'denied'|null}
+ */
+let _micPermState = null;
+
+/**
+ * The PermissionStatus object for 'microphone', kept so we can listen for
+ * state changes when the user enables/disables access in browser settings.
+ * @type {PermissionStatus|null}
+ */
+let _micPermStatusObj = null;
+
+// ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
 
@@ -220,6 +238,9 @@ const darkModeToggle      = document.getElementById('dark-mode-toggle');
 const themeIcon           = document.getElementById('theme-icon');
 const btnDashboardSettings = document.getElementById('btn-dashboard-settings');
 const btnSafeSleep        = document.getElementById('btn-safe-sleep');
+
+// Microphone permission notice (TASK-055)
+const micPermNotice       = document.getElementById('mic-perm-notice');
 
 // Control panel buttons / inputs
 const cpSpeakBtn          = document.getElementById('cp-speak-btn');
@@ -310,6 +331,7 @@ async function init() {
   await showNotificationPermissionScreen(notifScreen); // TASK-047
   showDashboard();
   _initOnboardingHint(); // TASK-031
+  _initMicPermission(); // TASK-055: query mic permission state and watch for changes
 
   // Check URL params before deciding which screen to show first.
   const urlParams = new URLSearchParams(window.location.search);
@@ -1741,6 +1763,11 @@ function openControlPanel(deviceId) {
   // Reset the rename form so it is hidden when the panel opens (TASK-023).
   cpRenameForm?.classList.add('hidden');
 
+  // Apply current microphone permission UI state (TASK-055): ensures the notice
+  // and button states are correct every time the panel opens, regardless of
+  // when the permission state was last checked.
+  _applyMicPermUI(_micPermState);
+
   controlPanel?.classList.remove('hidden');
 }
 
@@ -2126,6 +2153,12 @@ async function startSpeakThrough() {
 
     const micTrack = _speakMicStream.getAudioTracks()[0];
 
+    // Permission was granted — update state so the UI reflects this (TASK-055).
+    if (_micPermState !== 'granted') {
+      _micPermState = 'granted';
+      _applyMicPermUI('granted');
+    }
+
     // Add the microphone track to the peer connection so it is transmitted to
     // the baby device.  PeerJS handles the resulting renegotiation automatically.
     if (conn.peerConnection) {
@@ -2157,13 +2190,18 @@ async function startSpeakThrough() {
     _speakMicStream = null;
     console.error('[parent] Microphone access failed (TASK-012):', err);
 
-    // Show a brief error on the button
-    if (cpSpeakBtn) {
-      const origText = cpSpeakBtn.textContent;
-      cpSpeakBtn.textContent = '⚠️ Mic unavailable';
-      setTimeout(() => {
-        updateSpeakBtnLabel();
-      }, 2500);
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      // Permission was explicitly denied — update state and show persistent UI
+      // with instructions to re-enable (TASK-055).
+      _micPermState = 'denied';
+      _applyMicPermUI('denied');
+    } else {
+      // Device unavailable or other transient error — show a brief button label
+      // change so the parent knows the attempt failed.
+      if (cpSpeakBtn) {
+        cpSpeakBtn.textContent = '⚠️ Mic unavailable';
+        setTimeout(() => updateSpeakBtnLabel(), 2500);
+      }
     }
   }
 }
@@ -2212,6 +2250,126 @@ function stopSpeakThrough() {
   cpSpeakBtn?.setAttribute('aria-pressed', 'false');
   updateSpeakBtnLabel();
   console.log('[parent] Speak-through stopped (TASK-012)');
+}
+
+// ---------------------------------------------------------------------------
+// Microphone permission handling (TASK-055)
+// ---------------------------------------------------------------------------
+
+/**
+ * Query the current microphone permission state via the Permissions API and
+ * set up a listener to detect when the user changes the permission in their
+ * browser settings.  Falls back gracefully when the API is unavailable.
+ *
+ * Called once during init().  The change listener enables automatic button
+ * re-enabling when the parent grants permission after initially denying it.
+ */
+async function _initMicPermission() {
+  if (!navigator.permissions) return; // API not available on some older browsers
+
+  try {
+    _micPermStatusObj = await navigator.permissions.query({ name: /** @type {PermissionName} */ ('microphone') });
+    _micPermState = /** @type {'prompt'|'granted'|'denied'} */ (_micPermStatusObj.state);
+    _applyMicPermUI(_micPermState);
+
+    // Watch for the user enabling or revoking permission in browser settings
+    // (e.g. via the address-bar lock icon or the browser's privacy settings).
+    _micPermStatusObj.addEventListener('change', () => {
+      _micPermState = /** @type {'prompt'|'granted'|'denied'} */ (_micPermStatusObj.state);
+      console.log(`[parent] Microphone permission changed → ${_micPermState} (TASK-055)`);
+      _applyMicPermUI(_micPermState);
+    });
+  } catch (err) {
+    // Some browsers throw for 'microphone' queries (e.g. older Firefox, some iOS).
+    // Leave _micPermState as null so we do not interfere with normal operation.
+    console.warn('[parent] Could not query microphone permission (TASK-055):', err);
+  }
+}
+
+/**
+ * Update the control panel UI to reflect the current microphone permission
+ * state (TASK-055).
+ *
+ * - **'prompt'**  — permission not yet requested: show an informational note
+ *                   explaining why mic access is needed.
+ * - **'granted'** — permission granted: hide the notice; ensure buttons are
+ *                   enabled with their normal labels.
+ * - **'denied'**  — permission denied: show an error notice with per-browser
+ *                   instructions to re-enable; disable speak-through and
+ *                   record buttons with a "Microphone access required" label.
+ * - **null**      — Permissions API unavailable: no UI change.
+ *
+ * Safe to call at any time; no-ops when the relevant DOM elements are absent.
+ *
+ * @param {'prompt'|'granted'|'denied'|null} state
+ */
+function _applyMicPermUI(state) {
+  if (state === null) return; // Permissions API unavailable — leave UI untouched
+
+  const denied = state === 'denied';
+  const prompt = state === 'prompt';
+
+  // ---- Speak-through button -----------------------------------------------
+  if (cpSpeakBtn) {
+    cpSpeakBtn.disabled = denied;
+    if (denied) {
+      cpSpeakBtn.textContent = '🚫 Microphone access required';
+      cpSpeakBtn.setAttribute('aria-pressed', 'false');
+    } else if (!_speakActive) {
+      // Only restore the label when not currently mid-transmission.
+      updateSpeakBtnLabel();
+    }
+  }
+
+  // ---- Record start button -------------------------------------------------
+  if (cpRecStart) {
+    cpRecStart.disabled = denied;
+    if (denied) {
+      cpRecStart.textContent = '\u25CF Microphone access required';
+    } else if (!_recorder) {
+      // Restore the default label when no recording is in progress.
+      cpRecStart.innerHTML = '&#9679; Start Recording';
+    }
+  }
+
+  // ---- Permission notice ---------------------------------------------------
+  if (!micPermNotice) return;
+
+  if (denied) {
+    micPermNotice.classList.remove('hidden', 'mic-perm-notice--info');
+    micPermNotice.classList.add('mic-perm-notice--denied');
+    micPermNotice.setAttribute('role', 'alert');
+    micPermNotice.innerHTML = `
+      <span class="mic-perm-notice__icon" aria-hidden="true">🚫</span>
+      <div class="mic-perm-notice__body">
+        <strong>Microphone access required</strong>
+        <p>Speak Through and Record for Baby both need microphone access.
+           Please allow it in your browser settings, then refresh this page.</p>
+        <p class="mic-perm-notice__steps">
+          <strong>Chrome / Edge:</strong> tap the 🔒 icon in the address bar
+          → Site settings → Microphone → Allow.<br />
+          <strong>Firefox:</strong> tap the 🔒 icon → Site permissions
+          → Use the Microphone → Allow.<br />
+          <strong>Safari:</strong> Settings → Safari → this site → Microphone → Allow.
+        </p>
+      </div>
+    `;
+  } else if (prompt) {
+    micPermNotice.classList.remove('hidden', 'mic-perm-notice--denied');
+    micPermNotice.classList.add('mic-perm-notice--info');
+    micPermNotice.setAttribute('role', 'status');
+    micPermNotice.innerHTML = `
+      <span class="mic-perm-notice__icon" aria-hidden="true">🎙️</span>
+      <div class="mic-perm-notice__body">
+        <p>Microphone access lets you speak to your baby or record a message.
+           You'll be asked to allow it when you first use these features.</p>
+      </div>
+    `;
+  } else {
+    // 'granted' — hide the notice entirely
+    micPermNotice.classList.add('hidden');
+    micPermNotice.classList.remove('mic-perm-notice--info', 'mic-perm-notice--denied');
+  }
 }
 
 // Push-to-talk mode: start on pointerdown, stop on pointerup / pointerleave / pointercancel
@@ -2645,9 +2803,20 @@ async function _startRecording() {
 
   try {
     _recMicStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    // Permission was granted — update state so the UI reflects this (TASK-055).
+    if (_micPermState !== 'granted') {
+      _micPermState = 'granted';
+      _applyMicPermUI('granted');
+    }
   } catch (err) {
     console.error('[parent] Mic access denied for recording:', err);
-    alert('Microphone access is required to record a voice memo. Please allow access and try again.');
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      // Permission was explicitly denied — show persistent error UI with
+      // instructions to re-enable in browser settings (TASK-055).
+      _micPermState = 'denied';
+      _applyMicPermUI('denied');
+    }
+    // In all error cases, abort the recording attempt silently (no alert).
     return;
   }
 
