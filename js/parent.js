@@ -29,6 +29,7 @@
 import {
   lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS,
   getDeviceProfile, saveDeviceProfile, getDeviceProfiles, deleteDeviceProfile,
+  saveAudioFile,
 } from './storage.js';
 import { renderSafeSleepContent } from './safe-sleep.js';
 import {
@@ -128,6 +129,43 @@ const _lastTransferredFile = new Map();
 const FILE_CHUNK_SIZE = 16 * 1024;
 
 // ---------------------------------------------------------------------------
+// Voice recording state (TASK-043)
+// ---------------------------------------------------------------------------
+
+/** @type {MediaStream|null} Microphone stream captured for voice recording. */
+let _recMicStream = null;
+
+/** @type {MediaRecorder|null} Active MediaRecorder instance. */
+let _recorder = null;
+
+/** @type {Blob[]} Accumulated chunks from MediaRecorder dataavailable events. */
+let _recChunks = [];
+
+/** @type {Blob|null} Final assembled recording blob, set when recording stops. */
+let _recBlob = null;
+
+/** @type {string} MIME type chosen by the browser for this recording session. */
+let _recMimeType = '';
+
+/** @type {number|null} setInterval ID for the recording duration timer. */
+let _recTimerInterval = null;
+
+/** @type {number} Timestamp (Date.now()) when recording started. */
+let _recStartTime = 0;
+
+/** @type {AudioContext|null} AudioContext used for the recording level meter. */
+let _recAudioCtx = null;
+
+/** @type {AnalyserNode|null} AnalyserNode connected to the mic stream for metering. */
+let _recAnalyser = null;
+
+/** @type {number|null} requestAnimationFrame ID for the level meter animation loop. */
+let _recAnimFrame = null;
+
+/** @type {string|null} Object URL for the current recording preview (revoked on discard). */
+let _recPreviewUrl = null;
+
+// ---------------------------------------------------------------------------
 // Speak-through state (TASK-012)
 // ---------------------------------------------------------------------------
 
@@ -212,6 +250,21 @@ const cpFileName          = document.getElementById('cp-file-name');
 const cpFilePlay          = document.getElementById('cp-file-play');
 const cpFilePause         = document.getElementById('cp-file-pause');
 const cpFileStop          = document.getElementById('cp-file-stop');
+// Voice recording controls (TASK-043)
+const cpRecIdle           = document.getElementById('cp-rec-idle');
+const cpRecStart          = document.getElementById('cp-rec-start');
+const cpRecActive         = document.getElementById('cp-rec-active');
+const cpRecTimer          = document.getElementById('cp-rec-timer');
+const cpRecCanvas         = /** @type {HTMLCanvasElement|null} */ (document.getElementById('cp-rec-canvas'));
+const cpRecStop           = document.getElementById('cp-rec-stop');
+const cpRecPreview        = document.getElementById('cp-rec-preview');
+const cpRecPreviewAudio   = /** @type {HTMLAudioElement|null} */ (document.getElementById('cp-rec-preview-audio'));
+const cpRecSend           = document.getElementById('cp-rec-send');
+const cpRecSave           = document.getElementById('cp-rec-save');
+const cpRecDiscard        = document.getElementById('cp-rec-discard');
+const cpRecTransferProgress = document.getElementById('cp-rec-transfer-progress');
+const cpRecTransferBar    = document.getElementById('cp-rec-transfer-bar');
+const cpRecTransferPct    = document.getElementById('cp-rec-transfer-pct');
 const cpDisconnect        = document.getElementById('cp-disconnect');
 
 // Battery-saving controls (TASK-028)
@@ -1682,6 +1735,9 @@ function openControlPanel(deviceId) {
   if (cpSendAudio)        cpSendAudio.disabled = true;
   if (cpTransferProgress) cpTransferProgress.classList.add('hidden');
 
+  // Reset the recording UI so it always starts in the idle state (TASK-043).
+  _resetRecordingUi();
+
   // Reset the rename form so it is hidden when the panel opens (TASK-023).
   cpRenameForm?.classList.add('hidden');
 
@@ -1691,6 +1747,8 @@ function openControlPanel(deviceId) {
 function closeControlPanel() {
   // Stop speak-through if it is active when the panel is closed (TASK-012).
   if (_speakActive) stopSpeakThrough();
+  // Reset any in-progress voice recording and release the mic (TASK-043).
+  _resetRecordingUi();
   controlPanel?.classList.add('hidden');
   controlPanelDeviceId = null;
   stopScanner();
@@ -2493,6 +2551,414 @@ function _showFilePlaybackControls(deviceId, fileName) {
   if (cpFileStop)  cpFileStop.disabled  = true;
   _clearTransferUi();
 }
+
+// ---------------------------------------------------------------------------
+// Voice recording for baby (TASK-043)
+// ---------------------------------------------------------------------------
+
+/**
+ * Choose the best supported MIME type for MediaRecorder.
+ * Prefers WebM/Opus for broad browser support, falls back to OGG/Opus, then
+ * bare WebM or OGG, and ultimately the browser default (empty string).
+ * @returns {string}
+ */
+function _chooseMimeType() {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/ogg;codecs=opus',
+    'audio/webm',
+    'audio/ogg',
+  ];
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return ''; // browser default
+}
+
+/**
+ * Format elapsed seconds as MM:SS.
+ * @param {number} seconds
+ * @returns {string}
+ */
+function _formatDuration(seconds) {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+/**
+ * Draw one frame of the level meter on the recording canvas.
+ * Uses an AnalyserNode to read the current amplitude.
+ */
+function _drawMeter() {
+  if (!_recAnalyser || !cpRecCanvas) {
+    _recAnimFrame = null;
+    return;
+  }
+
+  const ctx = cpRecCanvas.getContext('2d');
+  if (!ctx) { _recAnimFrame = null; return; }
+
+  const bufLen = _recAnalyser.frequencyBinCount;
+  const data   = new Uint8Array(bufLen);
+  _recAnalyser.getByteFrequencyData(data);
+
+  // Compute RMS-ish level (0–1)
+  let sum = 0;
+  for (let i = 0; i < bufLen; i++) sum += data[i];
+  const avg   = sum / bufLen;
+  const level = avg / 255; // 0–1
+
+  const w = cpRecCanvas.width;
+  const h = cpRecCanvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Background
+  const isDark = document.body.classList.contains('dark-mode');
+  ctx.fillStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  ctx.fillRect(0, 0, w, h);
+
+  // Level bar
+  const barW = Math.round(w * level);
+  const grad = ctx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0,    '#00b894');
+  grad.addColorStop(0.65, '#fdcb6e');
+  grad.addColorStop(1,    '#d63031');
+  ctx.fillStyle = grad;
+  const barH  = Math.round(h * 0.55);
+  const barY  = Math.round((h - barH) / 2);
+  ctx.beginPath();
+  ctx.roundRect(2, barY, Math.max(barW - 4, 0), barH, 4);
+  ctx.fill();
+
+  _recAnimFrame = requestAnimationFrame(_drawMeter);
+}
+
+/**
+ * Start a voice recording session.
+ * Requests microphone access, sets up MediaRecorder, and begins the duration
+ * timer and level meter animation.
+ */
+async function _startRecording() {
+  if (_recorder) return; // guard: already recording
+
+  try {
+    _recMicStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (err) {
+    console.error('[parent] Mic access denied for recording:', err);
+    alert('Microphone access is required to record a voice memo. Please allow access and try again.');
+    return;
+  }
+
+  _recChunks  = [];
+  _recBlob    = null;
+  _recMimeType = _chooseMimeType();
+
+  _recorder = new MediaRecorder(
+    _recMicStream,
+    _recMimeType ? { mimeType: _recMimeType } : undefined,
+  );
+
+  _recorder.addEventListener('dataavailable', (e) => {
+    if (e.data?.size > 0) _recChunks.push(e.data);
+  });
+
+  _recorder.addEventListener('stop', () => {
+    // Assemble the final blob
+    const mimeType = _recorder?.mimeType || _recMimeType || 'audio/webm';
+    _recBlob = new Blob(_recChunks, { type: mimeType });
+    _recMimeType = mimeType;
+    _showRecordingPreview(_recBlob);
+  });
+
+  _recorder.start(250); // collect chunks every 250 ms
+
+  // Level meter
+  try {
+    _recAudioCtx = new AudioContext();
+    const src = _recAudioCtx.createMediaStreamSource(_recMicStream);
+    _recAnalyser = _recAudioCtx.createAnalyser();
+    _recAnalyser.fftSize = 256;
+    src.connect(_recAnalyser);
+    _recAnimFrame = requestAnimationFrame(_drawMeter);
+  } catch (e) {
+    // Level meter is decorative — swallow errors
+    console.warn('[parent] Level meter unavailable:', e);
+  }
+
+  // Duration timer
+  _recStartTime = Date.now();
+  if (cpRecTimer) cpRecTimer.textContent = '00:00';
+  _recTimerInterval = setInterval(() => {
+    const elapsed = Math.round((Date.now() - _recStartTime) / 1000);
+    if (cpRecTimer) cpRecTimer.textContent = _formatDuration(elapsed);
+  }, 500);
+
+  // Update UI: hide idle, show active
+  cpRecIdle?.classList.add('hidden');
+  cpRecPreview?.classList.add('hidden');
+  cpRecActive?.classList.remove('hidden');
+}
+
+/**
+ * Stop the active recording session.
+ * The MediaRecorder 'stop' event fires _showRecordingPreview once the
+ * final chunk is collected.
+ */
+function _stopRecording() {
+  if (!_recorder || _recorder.state === 'inactive') return;
+
+  // Stop the duration timer
+  if (_recTimerInterval !== null) {
+    clearInterval(_recTimerInterval);
+    _recTimerInterval = null;
+  }
+
+  // Stop the level meter
+  if (_recAnimFrame !== null) {
+    cancelAnimationFrame(_recAnimFrame);
+    _recAnimFrame = null;
+  }
+  if (_recAudioCtx) {
+    _recAudioCtx.close().catch(() => {});
+    _recAudioCtx = null;
+    _recAnalyser  = null;
+  }
+
+  // Stop mic tracks
+  _recMicStream?.getTracks().forEach(t => t.stop());
+
+  // Stopping the recorder triggers the 'stop' event → _showRecordingPreview
+  _recorder.stop();
+  _recorder = null;
+}
+
+/**
+ * Show the preview section so the parent can listen before sending.
+ * @param {Blob} blob
+ */
+function _showRecordingPreview(blob) {
+  // Revoke any stale object URL
+  if (_recPreviewUrl) {
+    URL.revokeObjectURL(_recPreviewUrl);
+    _recPreviewUrl = null;
+  }
+
+  _recPreviewUrl = URL.createObjectURL(blob);
+  if (cpRecPreviewAudio) {
+    cpRecPreviewAudio.src = _recPreviewUrl;
+    cpRecPreviewAudio.load();
+  }
+
+  // Reset the recording transfer progress bar
+  cpRecTransferProgress?.classList.add('hidden');
+  if (cpRecTransferBar) cpRecTransferBar.value = 0;
+  if (cpRecTransferPct) cpRecTransferPct.textContent = '0%';
+
+  // Enable send/save/discard buttons
+  if (cpRecSend)    cpRecSend.disabled    = false;
+  if (cpRecSave)    cpRecSave.disabled    = false;
+  if (cpRecDiscard) cpRecDiscard.disabled = false;
+
+  // Switch UI: hide active, show preview
+  cpRecActive?.classList.add('hidden');
+  cpRecPreview?.classList.remove('hidden');
+}
+
+/**
+ * Reset the recording UI to the idle state and release all resources.
+ */
+function _resetRecordingUi() {
+  // Stop any in-flight recording
+  if (_recorder && _recorder.state !== 'inactive') {
+    _recorder.stop();
+  }
+  _recorder = null;
+
+  if (_recTimerInterval !== null) {
+    clearInterval(_recTimerInterval);
+    _recTimerInterval = null;
+  }
+  if (_recAnimFrame !== null) {
+    cancelAnimationFrame(_recAnimFrame);
+    _recAnimFrame = null;
+  }
+  if (_recAudioCtx) {
+    _recAudioCtx.close().catch(() => {});
+    _recAudioCtx = null;
+    _recAnalyser  = null;
+  }
+
+  _recMicStream?.getTracks().forEach(t => t.stop());
+  _recMicStream = null;
+  _recChunks    = [];
+  _recBlob      = null;
+
+  if (cpRecPreviewAudio) {
+    cpRecPreviewAudio.pause();
+    cpRecPreviewAudio.src = '';
+  }
+  if (_recPreviewUrl) {
+    URL.revokeObjectURL(_recPreviewUrl);
+    _recPreviewUrl = null;
+  }
+
+  if (cpRecTimer) cpRecTimer.textContent = '00:00';
+  cpRecTransferProgress?.classList.add('hidden');
+
+  // Return to idle
+  cpRecActive?.classList.add('hidden');
+  cpRecPreview?.classList.add('hidden');
+  cpRecIdle?.classList.remove('hidden');
+  if (cpRecStart) cpRecStart.disabled = false;
+}
+
+/**
+ * Transfer the recorded blob to the baby device using the same chunked
+ * base64 mechanism as the file upload path (TASK-013).
+ *
+ * The recording is named `voice-memo-<timestamp>.<ext>` and treated
+ * identically to any uploaded audio file on the baby side — subject to
+ * the fade-out timer (TASK-014) and audio ducking (TASK-038).
+ */
+async function _sendRecordingToBaby() {
+  if (!_recBlob) return;
+  if (_activeTransfer) {
+    alert('A file transfer is already in progress. Please wait for it to finish.');
+    return;
+  }
+
+  const conn = getActiveConn();
+  if (!conn?.dataChannel) {
+    alert('No baby device connected. Please reconnect and try again.');
+    return;
+  }
+
+  const blob       = _recBlob;
+  const ext        = blob.type.includes('ogg') ? 'ogg' : 'webm';
+  const fileName   = `voice-memo-${Date.now()}.${ext}`;
+  const transferId = crypto.randomUUID();
+  const totalChunks = Math.ceil(blob.size / FILE_CHUNK_SIZE);
+  const targetDeviceId = controlPanelDeviceId;
+
+  _activeTransfer = { id: transferId, deviceId: targetDeviceId, totalChunks, sentChunks: 0 };
+
+  // Disable send/save/discard while transferring
+  if (cpRecSend)    cpRecSend.disabled    = true;
+  if (cpRecSave)    cpRecSave.disabled    = true;
+  if (cpRecDiscard) cpRecDiscard.disabled = true;
+  cpRecTransferProgress?.classList.remove('hidden');
+  if (cpRecTransferBar) cpRecTransferBar.value = 0;
+  if (cpRecTransferPct) cpRecTransferPct.textContent = '0%';
+
+  try {
+    // Step 1: send metadata
+    sendMessage(conn.dataChannel, MSG.FILE_META, {
+      id:          transferId,
+      name:        fileName,
+      size:        blob.size,
+      mimeType:    blob.type || 'audio/webm',
+      totalChunks,
+    });
+
+    // Step 2: read blob and send in 16 KB chunks
+    const buffer = await blob.arrayBuffer();
+    const bytes  = new Uint8Array(buffer);
+
+    for (let seq = 0; seq < totalChunks; seq++) {
+      if (!_activeTransfer || _activeTransfer.id !== transferId) break;
+
+      const start  = seq * FILE_CHUNK_SIZE;
+      const end    = Math.min(start + FILE_CHUNK_SIZE, bytes.byteLength);
+      const chunk  = bytes.subarray(start, end);
+      let   binary = '';
+      for (let i = 0; i < chunk.length; i++) binary += String.fromCharCode(chunk[i]);
+      const data = btoa(binary);
+
+      sendMessage(conn.dataChannel, MSG.FILE_CHUNK, { id: transferId, seq, data });
+
+      _activeTransfer.sentChunks = seq + 1;
+      const pct = Math.round(((seq + 1) / totalChunks) * 100);
+      if (cpRecTransferBar) cpRecTransferBar.value = pct;
+      if (cpRecTransferPct) cpRecTransferPct.textContent = `${pct}%`;
+
+      if (seq % 10 === 9) await new Promise(r => setTimeout(r, 0));
+    }
+
+    // Step 3: send completion marker
+    if (_activeTransfer?.id === transferId) {
+      sendMessage(conn.dataChannel, MSG.FILE_COMPLETE, { id: transferId });
+      _lastTransferredFile.set(targetDeviceId ?? '', { name: fileName });
+      _activeTransfer = null;
+
+      // Hide recording UI and show the shared playback controls
+      _resetRecordingUi();
+      _showFilePlaybackControls(targetDeviceId ?? '', fileName);
+    }
+  } catch (err) {
+    console.error('[parent] Recording transfer error:', err);
+    if (_activeTransfer?.id === transferId) {
+      try {
+        sendMessage(conn.dataChannel, MSG.FILE_ABORT, { id: transferId, reason: err.message });
+      } catch (_) { /* channel may be closed */ }
+      _activeTransfer = null;
+    }
+    // Re-enable preview actions so the parent can retry or discard
+    if (cpRecSend)    cpRecSend.disabled    = false;
+    if (cpRecSave)    cpRecSave.disabled    = false;
+    if (cpRecDiscard) cpRecDiscard.disabled = false;
+    cpRecTransferProgress?.classList.add('hidden');
+  }
+}
+
+// Recording event listeners ------------------------------------------------
+
+cpRecStart?.addEventListener('click', () => {
+  _startRecording().catch(err => console.error('[parent] _startRecording error:', err));
+});
+
+cpRecStop?.addEventListener('click', () => {
+  _stopRecording();
+});
+
+cpRecSend?.addEventListener('click', () => {
+  _sendRecordingToBaby().catch(err => console.error('[parent] _sendRecordingToBaby error:', err));
+});
+
+/**
+ * Save the current recording to IndexedDB for use in future sessions,
+ * consistent with the audio library established by TASK-032.
+ * The blob is stored with type 'recorded'; the parent can send it to a baby
+ * device in a future session by browsing their saved recordings.
+ */
+cpRecSave?.addEventListener('click', async () => {
+  if (!_recBlob) return;
+  if (cpRecSave) cpRecSave.disabled = true;
+  try {
+    const ext      = _recBlob.type.includes('ogg') ? 'ogg' : 'webm';
+    const fileName = `voice-memo-${Date.now()}.${ext}`;
+    await saveAudioFile({
+      name:      fileName,
+      blob:      _recBlob,
+      size:      _recBlob.size,
+      duration:  0,
+      type:      'recorded',
+      dateAdded: Date.now(),
+    });
+    if (cpRecSave) {
+      cpRecSave.textContent = 'Saved!';
+      setTimeout(() => { if (cpRecSave) cpRecSave.textContent = 'Save for Later'; }, 2000);
+    }
+  } catch (err) {
+    console.error('[parent] Failed to save recording:', err);
+    if (cpRecSave) cpRecSave.disabled = false;
+  }
+});
+
+cpRecDiscard?.addEventListener('click', () => {
+  _resetRecordingUi();
+});
 
 // Disconnect
 cpDisconnect?.addEventListener('click', () => {

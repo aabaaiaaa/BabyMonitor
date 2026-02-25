@@ -335,6 +335,65 @@
         </div>
       </section>
 
+      <!-- Voice recording for baby (TASK-043) -->
+      <section class="control-group" aria-labelledby="cp-rec-label">
+        <h3 id="cp-rec-label">Record for Baby</h3>
+        <div class="record-section">
+
+          <!-- Step 1: idle — record button -->
+          <div class="record-idle" id="cp-rec-idle">
+            <button id="cp-rec-start" class="record-start-btn"
+                    aria-label="Record voice memo for baby">
+              &#9679; Start Recording
+            </button>
+            <p class="record-hint">Tap to record a voice memo that will be sent to the baby device and played on repeat.</p>
+          </div>
+
+          <!-- Step 2: recording active -->
+          <div class="record-active hidden" id="cp-rec-active" aria-live="polite">
+            <div class="record-status-row">
+              <span class="record-indicator" aria-hidden="true">&#9679;</span>
+              <span class="record-timer" id="cp-rec-timer" aria-label="Recording duration">00:00</span>
+            </div>
+            <canvas class="rec-meter" id="cp-rec-canvas"
+                    width="260" height="40"
+                    aria-hidden="true"></canvas>
+            <button id="cp-rec-stop" class="action-btn record-stop-btn"
+                    aria-label="Stop recording">
+              &#9632; Stop
+            </button>
+          </div>
+
+          <!-- Step 3: preview — listen before sending -->
+          <div class="record-preview hidden" id="cp-rec-preview">
+            <p class="record-preview__label">Preview your recording:</p>
+            <!-- eslint-disable-next-line -->
+            <audio id="cp-rec-preview-audio" controls class="record-preview__audio"></audio>
+            <div class="record-preview__btns" role="group" aria-label="Recording actions">
+              <button id="cp-rec-send"    class="action-btn record-send-btn"
+                      aria-label="Send recording to baby device">
+                Send to Baby
+              </button>
+              <button id="cp-rec-save"   class="action-btn record-save-btn"
+                      aria-label="Save recording for future sessions">
+                Save for Later
+              </button>
+              <button id="cp-rec-discard" class="action-btn record-discard-btn"
+                      aria-label="Discard recording and re-record">
+                Discard
+              </button>
+            </div>
+
+            <!-- Transfer progress (reused for recording transfer) -->
+            <div class="transfer-progress hidden" id="cp-rec-transfer-progress">
+              <progress id="cp-rec-transfer-bar" max="100" value="0" aria-label="Recording transfer progress"></progress>
+              <span id="cp-rec-transfer-pct">0%</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
       <!-- Camera controls -->
       <section class="control-group" aria-labelledby="cp-camera-label">
         <h3 id="cp-camera-label">Camera</h3>

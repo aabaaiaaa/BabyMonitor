@@ -926,6 +926,152 @@
 }
 
 /* --------------------------------------------------------------------------
+   Voice recording for baby (TASK-043)
+   -------------------------------------------------------------------------- */
+.record-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* Idle state */
+.record-idle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.record-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.record-start-btn {
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-danger, #d63031);
+  background: transparent;
+  color: var(--color-danger, #d63031);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.record-start-btn:hover:not(:disabled) {
+  background: var(--color-danger, #d63031);
+  color: #fff;
+}
+
+.record-start-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Active recording state */
+.record-active {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.record-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Pulsing red dot */
+.record-indicator {
+  color: var(--color-danger, #d63031);
+  font-size: 1.2rem;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.2; }
+}
+
+.record-timer {
+  font-size: var(--font-size-lg, 1.25rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--color-danger, #d63031);
+  letter-spacing: 0.05em;
+}
+
+/* Level meter canvas */
+.rec-meter {
+  width: 100%;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset, #f0f0f0);
+  display: block;
+}
+
+.dark-mode .rec-meter {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.record-stop-btn {
+  width: 100%;
+  min-height: var(--touch-target);
+}
+
+/* Preview state */
+.record-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.record-preview__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.record-preview__audio {
+  width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.record-preview__btns {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.record-send-btn {
+  flex: 2;
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.record-send-btn:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.record-save-btn {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.record-discard-btn {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--color-danger, #d63031);
+  border-color: var(--color-danger, #d63031);
+}
+
+/* --------------------------------------------------------------------------
    Quality selector (TASK-025)
    -------------------------------------------------------------------------- */
 .quality-btn-group {
