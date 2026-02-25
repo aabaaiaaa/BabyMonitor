@@ -52,6 +52,8 @@ import {
   scheduleFadeOut as _mpScheduleFadeOut,
   cancelScheduledFade as _mpCancelScheduledFade,
   isMusicPlaying as _mpIsPlaying,
+  getMusicGainValue as _mpGetMusicGainValue,
+  isSourceActive as _mpIsSourceActive,
   BUILTIN_TRACKS,
 } from './music-player.js';
 
@@ -3701,3 +3703,65 @@ window.__testGetPoolIndex = () => lsGet(SETTING_KEYS.BACKUP_POOL_INDEX, 0);
  * @returns {string[]|null}
  */
 window.__testGetPool = () => lsGet(SETTING_KEYS.BACKUP_ID_POOL, null);
+
+// ---------------------------------------------------------------------------
+// E2E test hooks — soothing modes (TASK-065)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the name of the currently active soothing mode.
+ * @returns {string} e.g. 'candle'|'water'|'stars'|'music'|'combined'|'off'
+ */
+window.__testGetSoothingMode = () => state.soothingMode;
+
+/**
+ * Programmatically start a soothing mode, bypassing the UI overlay.
+ * Equivalent to the user clicking a mode button.
+ * @param {string} mode
+ */
+window.__testStartSoothingMode = (mode) => startSoothingMode(mode);
+
+/**
+ * Return the AudioContext state string, or null if no context exists yet.
+ * @returns {'running'|'suspended'|'closed'|null}
+ */
+window.__testGetAudioContextState = () => _audioCtx?.state ?? null;
+
+/**
+ * Return true if the music player has an active source node connected to the
+ * audio graph (i.e. a track is playing).
+ * @returns {boolean}
+ */
+window.__testIsMusicPlaying = () => _mpIsSourceActive();
+
+/**
+ * Return the current intrinsic value of the music player's internal GainNode.
+ * During an exponential fade this reflects the automation-computed value.
+ * Returns null if the player is not attached.
+ * @returns {number|null}
+ */
+window.__testGetMusicGainValue = () => _mpGetMusicGainValue();
+
+/**
+ * Return the current master gain value (_audioGain), or null if not created.
+ * @returns {number|null}
+ */
+window.__testGetMasterGainValue = () => _audioGain?.gain?.value ?? null;
+
+/**
+ * Start the fade-out countdown timer with a custom duration (seconds).
+ * Accepts small values (e.g. 5) for fast E2E test assertions.
+ * @param {number} seconds
+ */
+window.__testStartFadeTimer = (seconds) => startFadeTimer(seconds);
+
+/**
+ * Cancel the active fade-out timer and restore audio to full volume.
+ */
+window.__testCancelFadeTimer = () => cancelFadeTimer();
+
+/**
+ * Return the number of seconds remaining on the active fade timer, or 0.
+ * @returns {number}
+ */
+window.__testGetFadeRemaining = () => state.fadeRemaining ?? 0;

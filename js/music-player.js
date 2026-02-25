@@ -287,6 +287,32 @@ export function cancelScheduledFade() {
   console.log('[music-player] Pre-scheduled fade cancelled (TASK-014)');
 }
 
+/**
+ * Return the current intrinsic value of the internal music GainNode.
+ * Exposed for E2E test assertions (TASK-065).
+ *
+ * Note: during an exponential ramp the Web Audio API's .value getter reflects
+ * the automation-computed value at AudioContext.currentTime in Chrome, so this
+ * can be polled to observe the fade-out progressing toward 0.0001.
+ *
+ * @returns {number|null}
+ */
+export function getMusicGainValue() {
+  return _musicGain?.gain?.value ?? null;
+}
+
+/**
+ * Return true if the internal source node is non-null (i.e. a track is active
+ * and connected through _musicGain to the destination).
+ * Mirrors isMusicPlaying() but explicitly documents the connectivity check.
+ * Exposed for E2E test assertions (TASK-065).
+ *
+ * @returns {boolean}
+ */
+export function isSourceActive() {
+  return _activeSource !== null;
+}
+
 // ---------------------------------------------------------------------------
 // Buffer synthesis (each track generated once, then cached)
 // ---------------------------------------------------------------------------
