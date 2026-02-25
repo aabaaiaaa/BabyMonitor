@@ -413,7 +413,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: Intercept the browser's `beforeinstallprompt` event and suppress the default prompt. After the user has completed first-run onboarding and successfully established their first baby monitor connection, show an in-app install banner: "Install this app for better background performance and battery life." Include an "Install" button that triggers the saved prompt and a "Not now" option that dismisses it. If the user dismisses it, do not show it again for at least 7 days (track in `localStorage`). If the app is already installed as a PWA, do not show the banner. On iOS Chrome (where `beforeinstallprompt` is not available), show a manual install instruction instead: "Tap the Share button then 'Add to Home Screen' for the best experience."
 
 ### TASK-053: Implement Service Worker update detection and refresh prompt
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-002
 - **Description**: When the Service Worker detects that a new version of the app has been deployed (the SW's `updatefound` and `statechange` events), show a non-blocking banner at the top of the screen: "A new version is available — tap to update." Tapping it calls `skipWaiting()` on the new Service Worker and reloads the page to activate it. The banner must not auto-reload without user consent, as an unexpected reload during an active monitoring session would be disruptive. If the user dismisses the banner, remind them again the next time the app is opened. Ensure the versioning strategy in the Service Worker cache name allows clean cache replacement on each deploy (e.g. include a build hash or version number in the cache name).

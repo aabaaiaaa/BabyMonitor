@@ -816,6 +816,23 @@
     </div>
   </div>
 
+  <!-- SW update notification banner (TASK-053): shown when a new version of
+       the app has been deployed and the new Service Worker is waiting.
+       Non-blocking — the user must explicitly tap "Update" to reload.
+       Dismissing hides it for the current session; it reappears on next load
+       if the waiting SW is still present. -->
+  <div id="sw-update-banner" class="sw-update-banner hidden" role="alert" aria-live="polite"
+       aria-label="App update available">
+    <span class="sw-update-banner__icon" aria-hidden="true">🔄</span>
+    <p class="sw-update-banner__msg">A new version is available — tap to update.</p>
+    <div class="sw-update-banner__actions">
+      <button id="sw-update-btn" class="sw-update-banner__update-btn">Update</button>
+      <button id="sw-update-dismiss" class="sw-update-banner__dismiss-btn"
+              aria-label="Dismiss update notification">✕</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/sw-update.js"></script>
   <script type="module" src="js/parent.js"></script>
 </body>
 </html>

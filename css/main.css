@@ -327,6 +327,108 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   SW update notification banner (TASK-053)
+   Shown at the top of the screen when a new Service Worker version is waiting.
+   Non-blocking — the user explicitly taps "Update" to reload. Uses a distinct
+   info/teal colour to differentiate it from the warning-yellow compat banner.
+   Dismissing hides it for the current session; it reappears on next page load
+   if the waiting SW is still present.
+   -------------------------------------------------------------------------- */
+.sw-update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: #0d6e6e;
+  border-bottom: 2px solid #0a9396;
+  color: #e0f7fa;
+  font-size: var(--font-size-sm);
+}
+
+.dark-mode .sw-update-banner {
+  background: rgba(10, 147, 150, 0.2);
+  border-bottom-color: #0a9396;
+  color: #b2ebf2;
+}
+
+.sw-update-banner__icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.sw-update-banner__msg {
+  flex: 1;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.sw-update-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.sw-update-banner__update-btn {
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-md);
+  background: #fff;
+  color: #0d6e6e;
+  border: none;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sw-update-banner__update-btn:hover,
+.sw-update-banner__update-btn:focus-visible {
+  background: #e0f7fa;
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.dark-mode .sw-update-banner__update-btn {
+  background: #0a9396;
+  color: #fff;
+}
+
+.dark-mode .sw-update-banner__update-btn:hover,
+.dark-mode .sw-update-banner__update-btn:focus-visible {
+  background: #0d6e6e;
+}
+
+.sw-update-banner__dismiss-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  font-size: 1rem;
+  color: inherit;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0.75;
+}
+
+.sw-update-banner__dismiss-btn:hover,
+.sw-update-banner__dismiss-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
    Background persistence banner (TASK-029)
    Shown when monitoring is active; informs users to keep the tab open (or
    install the PWA) to maintain WebRTC connections and background alerts.

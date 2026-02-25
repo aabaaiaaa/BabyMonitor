@@ -1,5 +1,6 @@
 /**
  * sw.js — Service Worker: PWA offline caching (TASK-002)
+ *                         SW update detection support (TASK-053)
  *
  * Strategy: cache-first for all app assets and CDN libraries.
  *
@@ -16,9 +17,25 @@
  * CDN origins cached by this Service Worker:
  *   - https://cdnjs.cloudflare.com  (qrcode.js)
  *   - https://cdn.jsdelivr.net      (jsQR, PeerJS)
+ *
+ * Versioning strategy (TASK-053):
+ *   The CACHE_VERSION string is embedded in CACHE_NAME.  Every time app
+ *   assets change (new deploy), CACHE_VERSION must be incremented so that:
+ *     1. The install handler creates a new, fresh cache with the new version.
+ *     2. The activate handler deletes all caches whose name does not match the
+ *        current CACHE_NAME, cleanly removing stale assets.
+ *   Using a version number (rather than relying solely on SW byte-diff) makes
+ *   cache replacement explicit and predictable.
+ *
+ * Update activation (TASK-053):
+ *   self.skipWaiting() is NOT called automatically in `install`.  Instead,
+ *   the page-side module js/sw-update.js shows a non-blocking banner when a
+ *   waiting SW is detected.  When the user taps "Update", js/sw-update.js
+ *   sends { type: 'SKIP_WAITING' } here, which then calls self.skipWaiting().
+ *   This prevents an unexpected page reload during an active monitoring session.
  */
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME    = `baby-monitor-${CACHE_VERSION}`;
 
 // ---------------------------------------------------------------------------
@@ -40,6 +57,7 @@ const APP_ASSETS = [
   './js/qr.js',
   './js/webrtc.js',
   './js/storage.js',
+  './js/sw-update.js',
   './manifest.json',
   './icons/icon.svg',
 ];
@@ -69,8 +87,11 @@ const CDN_ORIGINS = new Set([
 // ---------------------------------------------------------------------------
 
 self.addEventListener('install', (event) => {
-  // Activate this SW immediately without waiting for old pages to close.
-  self.skipWaiting();
+  // NOTE: self.skipWaiting() is intentionally NOT called here (TASK-053).
+  // The new SW waits in the 'installed' state until the user explicitly
+  // consents to the update via the banner shown by js/sw-update.js.
+  // This prevents an unexpected reload during an active monitoring session.
+  // skipWaiting() is triggered by the 'SKIP_WAITING' message below.
 
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
@@ -121,6 +142,17 @@ self.addEventListener('activate', (event) => {
       )
       .then(() => self.clients.claim())
   );
+});
+
+// ---------------------------------------------------------------------------
+// Message — handle skipWaiting request from js/sw-update.js (TASK-053)
+// ---------------------------------------------------------------------------
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    console.log('[sw] Received SKIP_WAITING — activating new Service Worker (TASK-053)');
+    self.skipWaiting();
+  }
 });
 
 // ---------------------------------------------------------------------------
