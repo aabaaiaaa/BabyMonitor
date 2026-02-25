@@ -708,6 +708,34 @@
         <p class="settings-status" id="peerjs-status" aria-live="polite"></p>
       </section>
 
+      <!-- Alert sounds (TASK-050): volume and mute toggle for noise and battery chimes.
+           Distinct from the baby stream volume (Monitor Volume) and music volume.
+           Volume and muted state are persisted in localStorage and applied in parent.js. -->
+      <section class="settings-group" aria-labelledby="alert-sounds-label">
+        <h3 id="alert-sounds-label">Alert Sounds</h3>
+        <p class="settings-group__desc">
+          A gentle chime plays on this device when a noise threshold or low-battery
+          alert fires — so you are notified even if you are not looking at the dashboard.
+          Noise and battery alerts use distinct tones so you can tell them apart by sound.
+        </p>
+
+        <label class="toggle-row">
+          <span>Enable alert sounds</span>
+          <input type="checkbox" id="settings-alert-sounds-enabled" role="switch" checked
+                 aria-label="Enable alert sound chimes" />
+        </label>
+
+        <div class="settings-field">
+          <label class="settings-field__label" for="settings-alert-volume">
+            Alert volume: <output id="settings-alert-volume-value">50</output>%
+          </label>
+          <input type="range" id="settings-alert-volume" class="volume-slider"
+                 min="0" max="100" value="50"
+                 aria-label="Alert chime volume" />
+        </div>
+        <p class="settings-hint">This volume is separate from Monitor Volume and Music Volume.</p>
+      </section>
+
     </div>
   </section>
 

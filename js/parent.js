@@ -23,6 +23,7 @@
  *   TASK-046  — Dark / night mode
  *   TASK-047  — Notification permission
  *   TASK-048  — State sync from baby device
+ *   TASK-050  — Audible alert chimes (volume + mute)
  *   TASK-058  — Share with additional parent
  */
 
@@ -3694,6 +3695,19 @@ const activeAlerts = new Set();
 let _alertToneCtx = null;
 
 /**
+ * Alert tone volume: 0.0 (silent) to 1.0 (full volume).
+ * Loaded from localStorage on startup and updated live by the settings slider (TASK-050).
+ * Default: 50% (0.5).
+ */
+let _alertToneVolume = lsGet(SETTING_KEYS.ALERT_TONE_VOLUME, 50) / 100;
+
+/**
+ * When true, no alert tones are played.
+ * Toggled by the "Enable alert sounds" checkbox in settings (TASK-050).
+ */
+let _alertToneMuted = lsGet(SETTING_KEYS.ALERT_TONE_MUTED, false);
+
+/**
  * Pending alert tones, in the order they will be played.
  * Each entry: { priority: number, pulses: Array<[freq, durMs]> }
  * @type {Array<{priority: number, pulses: Array<[number, number]>}>}
@@ -3748,8 +3762,10 @@ function _playAlertPulse(ctx, freq, durMs) {
       osc.frequency.value = freq;
 
       // Fade in over 10 ms, fade out over the last 10 ms to avoid clicks.
+      // Peak gain scales with user-configured alert volume (TASK-050).
+      const peak = 0.4 * Math.max(0, Math.min(1, _alertToneVolume));
       gain.gain.setValueAtTime(0, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + 0.01);
+      gain.gain.linearRampToValueAtTime(peak, ctx.currentTime + 0.01);
       gain.gain.linearRampToValueAtTime(0, ctx.currentTime + durMs / 1000);
 
       osc.start(ctx.currentTime);
@@ -3804,6 +3820,9 @@ async function _playNextAlertTone() {
  * @param {'battery'|'movement'|'noise'} type
  */
 function _enqueueAlertTone(type) {
+  // TASK-050: respect the global alert-sounds mute toggle.
+  if (_alertToneMuted) return;
+
   const config = ALERT_TONE_CONFIG[type];
   if (!config) return;
 
@@ -4000,7 +4019,10 @@ function showBatteryAlert(deviceId, level, label) {
 
   // TASK-036: play the high-priority battery alert tone.  If a movement or
   // noise tone is already queued, the battery tone is inserted before it.
-  _enqueueAlertTone('battery');
+  // TASK-050: suppress the audio component when alerts are snoozed (TASK-027).
+  if (!isMovementAlertSnoozed(deviceId)) {
+    _enqueueAlertTone('battery');
+  }
 
   // Background notification (TASK-029): delivered when the tab is hidden.
   _sendBackgroundNotification(
@@ -4104,7 +4126,10 @@ function showNoiseAlert(deviceId, label) {
   _insertAlertBanner(banner, 'noise');
 
   // TASK-036: enqueue noise tone behind any pending battery or movement tones.
-  _enqueueAlertTone('noise');
+  // TASK-050: suppress the audio component when alerts are snoozed (TASK-027).
+  if (!isMovementAlertSnoozed(deviceId)) {
+    _enqueueAlertTone('noise');
+  }
 
   // Background notification (TASK-029): delivered when the tab is hidden.
   _sendBackgroundNotification(
@@ -4209,6 +4234,17 @@ function _syncSettingsScreen() {
   if (defaultTrackEl) defaultTrackEl.value = settings.defaultTrack   ?? '';
   if (videoQualityEl) videoQualityEl.value = settings.videoQuality   ?? 'medium';
   if (connMethodEl)   connMethodEl.value   = settings.preferredMethod ?? 'peerjs';
+
+  // Alert sounds — TASK-050
+  const alertEnabledEl   = document.getElementById('settings-alert-sounds-enabled');
+  const alertVolumeEl    = document.getElementById('settings-alert-volume');
+  const alertVolumeValEl = document.getElementById('settings-alert-volume-value');
+  if (alertEnabledEl) /** @type {HTMLInputElement} */ (alertEnabledEl).checked = !_alertToneMuted;
+  if (alertVolumeEl) {
+    const vol = Math.round(_alertToneVolume * 100);
+    /** @type {HTMLInputElement} */ (alertVolumeEl).value = String(vol);
+    if (alertVolumeValEl) alertVolumeValEl.value = String(vol);
+  }
 }
 
 // Wire up global defaults selects (TASK-032)
@@ -4247,6 +4283,21 @@ document.getElementById('speak-mode-toggle')?.addEventListener('change', () => {
   settings.speakMode = 'toggle';
   saveSetting(SETTING_KEYS.SPEAK_MODE, 'toggle');
   updateSpeakBtnLabel();
+});
+
+// Alert sounds toggle (TASK-050) — persists mute state and updates the in-memory flag.
+document.getElementById('settings-alert-sounds-enabled')?.addEventListener('change', (e) => {
+  _alertToneMuted = !/** @type {HTMLInputElement} */ (e.target).checked;
+  saveSetting(SETTING_KEYS.ALERT_TONE_MUTED, _alertToneMuted);
+});
+
+// Alert sounds volume slider (TASK-050) — updates gain used by _playAlertPulse.
+document.getElementById('settings-alert-volume')?.addEventListener('input', (e) => {
+  const pct = Number(/** @type {HTMLInputElement} */ (e.target).value);
+  _alertToneVolume = pct / 100;
+  saveSetting(SETTING_KEYS.ALERT_TONE_VOLUME, pct);
+  const valEl = document.getElementById('settings-alert-volume-value');
+  if (valEl) valEl.value = String(pct);
 });
 
 // Wire up TURN server save / clear buttons (TASK-008)

@@ -83,6 +83,8 @@ export const SETTING_KEYS = {
   PAIRED_DEVICES:     'paireddevices',   // array of saved device profiles
   BACKUP_ID_POOL:     'backuppool',      // string[] — baby device's pre-agreed backup peer ID pool (TASK-061)
   BACKUP_POOL_INDEX:  'backuppoolidx',   // number  — current index into the backup pool (TASK-061)
+  ALERT_TONE_VOLUME:  'alerttonevolume', // number 0-100 — alert chime volume (TASK-050)
+  ALERT_TONE_MUTED:   'alerttonemuted',  // boolean — mute alert chimes (TASK-050)
 };
 
 /**
