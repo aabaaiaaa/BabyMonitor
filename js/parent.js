@@ -849,6 +849,9 @@ async function startOfflinePairing() {
       offlineAnswerContainer.classList.remove('hidden');
       // No explicit qrSize: renderQRGrid will size cells to fit the container.
       renderQRGrid(offlineAnswerContainer, answerJson);
+      // Test hook (TASK-070): expose the raw answer payload so E2E tests can
+      // read it without decoding the QR canvas images.
+      offlineAnswerContainer.dataset.qrPayload = answerJson;
       if (pairingStatusOffline) {
         pairingStatusOffline.textContent = 'Show this to the baby device camera.';
       }

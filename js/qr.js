@@ -397,6 +397,16 @@ export async function scanSingle(videoEl, options = {}) {
 export async function scanMulti(videoEl, options = {}) {
   const { onProgress } = options;
 
+  // Test hook: if window.__TEST_MULTI_SCAN_RESULT is pre-loaded, return it
+  // immediately without opening the camera.  This allows E2E tests to bypass
+  // QR scanning on the multi-scan path (TASK-070).
+  // The value is consumed (set to null) so subsequent calls behave normally.
+  if (typeof window !== 'undefined' && window.__TEST_MULTI_SCAN_RESULT != null) {
+    const result = window.__TEST_MULTI_SCAN_RESULT;
+    window.__TEST_MULTI_SCAN_RESULT = null;
+    return result;
+  }
+
   if (typeof jsQR === 'undefined') {
     throw new Error('jsQR library not loaded');
   }
@@ -409,6 +419,17 @@ export async function scanMulti(videoEl, options = {}) {
 
   return new Promise((resolve) => {
     scanFrames(videoEl, (codes) => {
+      // Test hook: check on every frame for a late-injected result.
+      // This handles the case where the test injects the payload after
+      // scanMulti has already started looping over fake camera frames.
+      if (typeof window !== 'undefined' && window.__TEST_MULTI_SCAN_RESULT != null) {
+        const result = window.__TEST_MULTI_SCAN_RESULT;
+        window.__TEST_MULTI_SCAN_RESULT = null;
+        stopScanner();
+        resolve(result);
+        return true;
+      }
+
       for (const data of codes) {
         const match = HEADER_RE.exec(data);
         if (!match) continue; // Not a chunk — skip

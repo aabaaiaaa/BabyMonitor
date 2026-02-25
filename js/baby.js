@@ -1160,6 +1160,9 @@ async function startOfflinePairing() {
     // No explicit qrSize: renderQRGrid will size cells to fit the container.
     if (offlineQrContainer) {
       renderQRGrid(offlineQrContainer, offerJson);
+      // Test hook (TASK-070): expose the raw offer payload so E2E tests can
+      // read it without decoding the QR canvas images.
+      offlineQrContainer.dataset.qrPayload = offerJson;
     }
     if (pairingInstruction) {
       pairingInstruction.textContent = 'Show this grid to the parent device camera, then scan the parent\'s answer.';
