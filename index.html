@@ -335,6 +335,17 @@
     </div>
   </section>
 
+  <!-- Dark mode time-based prompt (TASK-046): shown when local time is 19:00–07:00
+       and the user has not yet set a theme preference. Non-blocking bottom banner. -->
+  <div id="theme-prompt" class="theme-prompt hidden" role="alert" aria-live="polite">
+    <span class="theme-prompt__icon" aria-hidden="true">🌙</span>
+    <p class="theme-prompt__text">It looks like it's evening — switch to dark mode?</p>
+    <div class="theme-prompt__actions">
+      <button id="theme-prompt-yes" class="theme-prompt__yes">Yes</button>
+      <button id="theme-prompt-no"  class="theme-prompt__no">No thanks</button>
+    </div>
+  </div>
+
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -767,10 +767,25 @@ async function init() {
 
 function setupTheme() {
   const theme = lsGet(SETTING_KEYS.THEME, 'light');
-  if (theme === 'dark') {
-    document.body.classList.add('dark-mode');
-  }
+  const isDark = theme === 'dark';
+  document.body.classList.toggle('dark-mode', isDark);
+  _updateThemeUI(isDark);
 }
+
+/** Update theme icon and label text in the baby settings overlay. */
+function _updateThemeUI(isDark) {
+  const icon      = document.getElementById('theme-icon');
+  const labelText = document.getElementById('baby-theme-label-text');
+  if (icon)      icon.textContent      = isDark ? '☀️' : '🌙';
+  if (labelText) labelText.textContent = isDark ? 'Dark mode' : 'Light mode';
+}
+
+// Wire up the dark mode toggle in the baby settings overlay (TASK-046).
+document.getElementById('dark-mode-toggle')?.addEventListener('click', () => {
+  const isDark = document.body.classList.toggle('dark-mode');
+  saveSetting(SETTING_KEYS.THEME, isDark ? 'dark' : 'light');
+  _updateThemeUI(isDark);
+});
 
 // ---------------------------------------------------------------------------
 // Onboarding hint (TASK-031)

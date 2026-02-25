@@ -221,6 +221,17 @@
         <button id="baby-settings-close" class="icon-btn overlay-close" aria-label="Close settings">✕</button>
         <h2>Baby Monitor Settings</h2>
 
+        <!-- Dark mode toggle (TASK-046) -->
+        <section class="settings-group" aria-labelledby="baby-theme-label">
+          <h3 id="baby-theme-label">Display Theme</h3>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button id="dark-mode-toggle" class="icon-btn" aria-label="Toggle dark mode" title="Toggle dark mode">
+              <span class="icon-btn__icon" aria-hidden="true" id="theme-icon">🌙</span>
+            </button>
+            <span id="baby-theme-label-text" style="font-size:var(--font-size-sm);color:var(--color-text-muted);">Light mode</span>
+          </div>
+        </section>
+
         <section class="settings-group" aria-labelledby="soothing-mode-label">
           <h3 id="soothing-mode-label">Soothing Mode</h3>
           <div class="mode-btn-group" role="group" aria-label="Soothing mode">

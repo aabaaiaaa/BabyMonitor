@@ -1629,6 +1629,93 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   Dark mode time-based prompt banner (TASK-046)
+   A subtle, non-blocking banner shown at the bottom of the screen when
+   the local time is between 19:00 and 07:00 and no theme preference is set.
+   -------------------------------------------------------------------------- */
+.theme-prompt {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(20, 20, 40, 0.92);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e0e0f0;
+  font-size: var(--font-size-sm);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: slide-up var(--transition-base) ease-out both;
+}
+
+.theme-prompt__text {
+  flex: 1;
+  min-width: 160px;
+  line-height: 1.4;
+}
+
+.theme-prompt__icon {
+  font-size: 1.2em;
+  flex-shrink: 0;
+}
+
+.theme-prompt__actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.theme-prompt__yes {
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.theme-prompt__yes:hover,
+.theme-prompt__yes:focus-visible {
+  background: var(--color-primary-dark);
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.theme-prompt__no {
+  min-height: var(--touch-target);
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.theme-prompt__no:hover,
+.theme-prompt__no:focus-visible {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.6);
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+  outline-offset: 2px;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* --------------------------------------------------------------------------
    Animations
    -------------------------------------------------------------------------- */
 @keyframes fade-in {

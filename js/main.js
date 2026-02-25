@@ -78,12 +78,28 @@ function maybePromptDarkMode() {
   if (lsGet(SETTING_KEYS.THEME, null) !== null) return;
 
   const hour = new Date().getHours();
-  if (hour >= 19 || hour < 7) {
-    // Non-blocking prompt — full UI implementation in TASK-046
-    // For now, just mark as seen to avoid repeating the check
+  if (hour < 19 && hour >= 7) return; // daytime — no prompt
+
+  const prompt   = document.getElementById('theme-prompt');
+  const yesBtn   = document.getElementById('theme-prompt-yes');
+  const noBtn    = document.getElementById('theme-prompt-no');
+  if (!prompt || !yesBtn || !noBtn) return;
+
+  // Show the non-blocking banner
+  prompt.classList.remove('hidden');
+
+  yesBtn.addEventListener('click', () => {
+    document.body.classList.add('dark-mode');
+    saveSetting(SETTING_KEYS.THEME, 'dark');
     lsSet(SETTING_KEYS.THEME_PROMPT_SEEN, true);
-    // TODO: Show subtle banner asking "Switch to dark mode?"
-  }
+    if (themeIcon) themeIcon.textContent = '☀️';
+    prompt.classList.add('hidden');
+  }, { once: true });
+
+  noBtn.addEventListener('click', () => {
+    lsSet(SETTING_KEYS.THEME_PROMPT_SEEN, true);
+    prompt.classList.add('hidden');
+  }, { once: true });
 }
 
 darkModeToggle?.addEventListener('click', () => {
