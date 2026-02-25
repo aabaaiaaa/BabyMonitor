@@ -916,6 +916,8 @@ async function _startShareParentFlow() {
       // Collect all saved device profiles (with backup ID pools)
       const profiles = getDeviceProfiles();
       sendMessage(channel, MSG.PARENT_HANDOFF, { devices: profiles });
+      // E2E test hook (TASK-069): expose last handoff payload sent for assertions.
+      window.__testLastHandoffSent = profiles;
 
       const count = profiles.length;
       if (shareParentStatus) {
@@ -1015,6 +1017,8 @@ async function startAddParentFlow() {
 
     // Step 4: Persist each received device profile to localStorage
     const { devices = [] } = handoffPayload;
+    // E2E test hook (TASK-069): expose received handoff payload for assertions.
+    window.__testLastHandoffPayload = handoffPayload;
     for (const profile of devices) {
       saveDeviceProfile(profile);
     }
@@ -5197,3 +5201,44 @@ window.__testCloseMonitorDataChannel = (deviceId) => {
   if (!entry?.conn?.dataChannel) return;
   try { entry.conn.dataChannel.close(); } catch (_) { /* ignore */ }
 };
+
+// ---------------------------------------------------------------------------
+// E2E test hooks — second parent pairing (TASK-069)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the local PeerJS peer ID registered by this parent device, or null
+ * if the peer has not been initialised yet.
+ * @returns {string|null}
+ */
+window.__testGetLocalPeerId = () => getLocalPeerId();
+
+/**
+ * Return the number of baby monitors currently in the monitors Map.
+ * Used to verify that a second parent's connection counts toward the
+ * 4-connection limit (MAX_MONITORS = 4).
+ * @returns {number}
+ */
+window.__testGetMonitorCount = () => monitors.size;
+
+/**
+ * Programmatically start the "Share with another parent" flow, equivalent
+ * to clicking the settings "Show sharing QR code" button.  Allows E2E tests
+ * to trigger the share flow without navigating to the settings screen.
+ * @returns {Promise<void>}
+ */
+window.__testTriggerShareParentFlow = () => _startShareParentFlow();
+
+/**
+ * Last PARENT_HANDOFF payload sent by this parent (first-parent role).
+ * Set in _startShareParentFlow() immediately after sendMessage().
+ * @type {object[]|null}
+ */
+window.__testLastHandoffSent = null;
+
+/**
+ * Last PARENT_HANDOFF payload received by this parent (second-parent role).
+ * Set in startAddParentFlow() immediately after the Promise resolves.
+ * @type {object|null}
+ */
+window.__testLastHandoffPayload = null;
