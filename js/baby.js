@@ -3007,22 +3007,63 @@ async function flipCamera() {
 
 /** @type {number} Tap counter for triple-tap unlock */
 let _tapCount = 0;
-/** @type {number|null} Timeout for resetting tap counter */
+/** @type {number|null} setTimeout ID for resetting the tap counter after inactivity */
 let _tapTimeout = null;
+/** @type {number|null} setTimeout ID for the auto-relock-after-30s timer */
+let _relockTimerId = null;
+/** @type {number|null} setTimeout ID for hiding the touch-lock hint */
+let _hintHideTimerId = null;
 
+/**
+ * Enter touch-lock / kiosk mode.
+ *
+ * - Sets state.locked = true so the babyMonitor click handler intercepts taps.
+ * - Requests fullscreen to suppress browser chrome.
+ * - Cancels any pending auto-relock timer (avoids duplicate lock calls when the
+ *   user manually re-locks via the settings close button).
+ */
 function enterTouchLock() {
+  clearTimeout(_relockTimerId);
+  _relockTimerId = null;
   state.locked = true;
   document.documentElement.requestFullscreen?.().catch(() => {});
 }
 
+/**
+ * Exit touch-lock and reveal the settings overlay.
+ *
+ * Automatically re-engages the lock after 30 seconds of inactivity so the
+ * user does not have to manually re-lock every time.
+ */
 function exitTouchLock() {
+  clearTimeout(_relockTimerId);
   state.locked = false;
   babySettingsOverlay?.classList.remove('hidden');
-  // Auto re-lock after 30 seconds (TASK-039)
-  setTimeout(() => {
+  // Auto re-lock after 30 seconds of inactivity (TASK-039)
+  _relockTimerId = setTimeout(() => {
+    _relockTimerId = null;
     babySettingsOverlay?.classList.add('hidden');
     enterTouchLock();
   }, 30_000);
+}
+
+/**
+ * Show the "Triple-tap to unlock" hint, restarting the CSS fade animation so
+ * repeated taps each produce a fresh animation run.
+ */
+function _showTouchLockHint() {
+  if (!touchLockHint) return;
+  clearTimeout(_hintHideTimerId);
+  // Restart the CSS animation by briefly forcing the browser to re-compute style.
+  touchLockHint.classList.remove('hidden');
+  touchLockHint.style.animation = 'none';
+  // eslint-disable-next-line no-unused-expressions
+  touchLockHint.offsetHeight; // trigger reflow
+  touchLockHint.style.animation = '';
+  _hintHideTimerId = setTimeout(() => {
+    touchLockHint.classList.add('hidden');
+    _hintHideTimerId = null;
+  }, 2000);
 }
 
 babyMonitor?.addEventListener('click', () => {
@@ -3037,12 +3078,13 @@ babyMonitor?.addEventListener('click', () => {
     return;
   }
 
-  // Show hint
-  touchLockHint?.classList.remove('hidden');
-  setTimeout(() => touchLockHint?.classList.add('hidden'), 2000);
+  // Show "Triple-tap to unlock" hint on single/double tap while locked.
+  _showTouchLockHint();
 
+  // Reset the tap counter if a third tap does not arrive within 1.5 s.
   _tapTimeout = setTimeout(() => {
     _tapCount = 0;
+    clearTimeout(_hintHideTimerId);
     touchLockHint?.classList.add('hidden');
   }, 1500);
 });

@@ -262,7 +262,7 @@ A browser-based, peer-to-peer baby monitor web app hosted on GitHub Pages. Two d
 - **Description**: On the baby monitor device, implement automatic volume ducking via the Web Audio API. All audio playing on the baby device (whether a bundled soothing track or an uploaded file from the parent) routes through a shared `GainNode`. When the parent activates speak-through (TASK-012) and audio from the parent is received, smoothly reduce the music gain to a low level (e.g. 15–20% of normal) using a short ramp (~0.5 s). When the parent stops speaking and the incoming audio track goes silent, ramp the music gain back up to its previous level (~1–2 s). The ducking threshold should be driven by detecting activity on the incoming parent audio track (using an `AnalyserNode` on that track), not by a manual data channel message, so it works automatically without extra control lag.
 
 ### TASK-039: Implement touch lock / kiosk mode on baby monitor
-- **Status**: pending
+- **Status**: done
 - **Priority**: medium
 - **Dependencies**: TASK-015
 - **Description**: Once the baby monitor is running in soothing or streaming mode, lock the UI against accidental input. Any single tap on the screen shows a very dim, brief text hint (e.g. "Triple tap to unlock") that fades out within 2 seconds. Three taps within 1.5 seconds unlocks the UI and reveals the settings/mode controls. When locked, the Fullscreen API (`document.documentElement.requestFullscreen()`) should be active to prevent browser chrome from appearing. Re-lock the UI automatically after 30 seconds of inactivity once unlocked. The locked state should be the default whenever the device enters a soothing or streaming mode.
