@@ -1716,6 +1716,142 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   Audio file library (TASK-049)
+   Shared styles used on both parent.html and baby.html.
+   -------------------------------------------------------------------------- */
+
+.audio-library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.audio-library__storage {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.audio-library__quota-warning {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger, #dc3545);
+  background: rgba(220, 53, 69, 0.08);
+  border: 1px solid rgba(220, 53, 69, 0.35);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  margin: 0;
+}
+
+.audio-library__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.audio-library__empty {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-sm) 0 0;
+}
+
+/* Individual file row */
+.audio-library__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  min-height: var(--touch-target);
+  overflow: hidden;
+}
+
+.dark-mode .audio-library__item {
+  background: var(--color-bg-surface);
+}
+
+.audio-library__item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.audio-library__item-name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-library__item-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* Action buttons row */
+.audio-library__item-actions {
+  display: flex;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.audio-library__btn {
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.audio-library__btn:hover:not(:disabled) {
+  background: var(--color-border);
+}
+
+.audio-library__btn--delete:hover:not(:disabled) {
+  background: rgba(220, 53, 69, 0.12);
+  border-color: rgba(220, 53, 69, 0.5);
+}
+
+.audio-library__btn--set[aria-pressed="true"] {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* Inline rename form */
+.audio-library__rename-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: 1;
+  min-width: 0;
+}
+
+.audio-library__rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+/* --------------------------------------------------------------------------
    Animations
    -------------------------------------------------------------------------- */
 @keyframes fade-in {

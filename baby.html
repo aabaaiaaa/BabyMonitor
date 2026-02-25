@@ -296,6 +296,22 @@
           </p>
         </section>
 
+        <!-- Audio file library (TASK-049): received audio files stored on this device -->
+        <section class="settings-group" aria-labelledby="baby-library-label">
+          <h3 id="baby-library-label">Audio Library</h3>
+          <div class="audio-library">
+            <p class="audio-library__storage" id="baby-library-storage" aria-live="polite"></p>
+            <p class="audio-library__quota-warning hidden" id="baby-library-quota-warning"
+               role="alert">Storage nearly full — delete some files to free up space.</p>
+            <div id="baby-library-list" class="audio-library__list" aria-label="Received audio files" aria-live="polite">
+              <!-- File rows inserted dynamically by js/baby.js -->
+            </div>
+            <p class="audio-library__empty hidden" id="baby-library-empty">
+              No saved audio files. Ask the parent device to send an audio file.
+            </p>
+          </div>
+        </section>
+
         <section class="settings-group">
           <button id="btn-disconnect" class="action-btn action-btn--danger">Disconnect</button>
         </section>

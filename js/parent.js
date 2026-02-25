@@ -29,7 +29,8 @@
 import {
   lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS,
   getDeviceProfile, saveDeviceProfile, getDeviceProfiles, deleteDeviceProfile,
-  saveAudioFile,
+  saveAudioFile, getAudioFile, listAudioFiles, deleteAudioFile, updateAudioFileName,
+  getStorageUsage,
 } from './storage.js';
 import { renderSafeSleepContent } from './safe-sleep.js';
 import {
@@ -166,6 +167,24 @@ let _recAnimFrame = null;
 let _recPreviewUrl = null;
 
 // ---------------------------------------------------------------------------
+// Audio library state (TASK-049)
+// ---------------------------------------------------------------------------
+
+/**
+ * Object URL for the currently previewing library file, or null.
+ * Revoked when a new preview starts or the panel closes.
+ * @type {string|null}
+ */
+let _libraryPreviewUrl = null;
+
+/**
+ * HTMLAudioElement used for local preview of library files.
+ * Created on first use and reused thereafter.
+ * @type {HTMLAudioElement|null}
+ */
+let _libraryPreviewAudio = null;
+
+// ---------------------------------------------------------------------------
 // Speak-through state (TASK-012)
 // ---------------------------------------------------------------------------
 
@@ -287,6 +306,12 @@ const cpRecTransferProgress = document.getElementById('cp-rec-transfer-progress'
 const cpRecTransferBar    = document.getElementById('cp-rec-transfer-bar');
 const cpRecTransferPct    = document.getElementById('cp-rec-transfer-pct');
 const cpDisconnect        = document.getElementById('cp-disconnect');
+
+// Audio library (TASK-049)
+const cpLibraryList       = document.getElementById('cp-library-list');
+const cpLibraryEmpty      = document.getElementById('cp-library-empty');
+const cpLibraryStorage    = document.getElementById('cp-library-storage');
+const cpLibraryQuotaWarn  = document.getElementById('cp-library-quota-warning');
 
 // Battery-saving controls (TASK-028)
 const cpVideoPaused       = document.getElementById('cp-video-paused');   // pause video from parent
@@ -1787,6 +1812,9 @@ function openControlPanel(deviceId) {
   // when the permission state was last checked.
   _applyMicPermUI(_micPermState);
 
+  // Load audio library (TASK-049)
+  _loadLibraryPanel().catch(err => console.warn('[parent] Library load error:', err));
+
   controlPanel?.classList.remove('hidden');
 }
 
@@ -1795,6 +1823,15 @@ function closeControlPanel() {
   if (_speakActive) stopSpeakThrough();
   // Reset any in-progress voice recording and release the mic (TASK-043).
   _resetRecordingUi();
+  // Stop any library preview audio (TASK-049).
+  if (_libraryPreviewAudio) {
+    _libraryPreviewAudio.pause();
+    _libraryPreviewAudio.src = '';
+  }
+  if (_libraryPreviewUrl) {
+    URL.revokeObjectURL(_libraryPreviewUrl);
+    _libraryPreviewUrl = null;
+  }
   controlPanel?.classList.add('hidden');
   controlPanelDeviceId = null;
   stopScanner();
@@ -2629,6 +2666,17 @@ cpSendAudio?.addEventListener('click', async () => {
       _activeTransfer = null;
       _setTransferUiActive(false);
       _showFilePlaybackControls(targetDeviceId, file.name);
+
+      // TASK-049: save a copy to the parent's local audio library so the file
+      // can be re-sent in future sessions without the user choosing it again.
+      saveAudioFile({
+        name:      file.name,
+        blob:      new Blob([buffer], { type: file.type || 'audio/mpeg' }),
+        size:      file.size,
+        duration:  0,
+        type:      'uploaded',
+        dateAdded: Date.now(),
+      }).catch(err => console.warn('[parent] Library save (upload) error:', err));
     }
   } catch (err) {
     console.error('[parent] File transfer error:', err);
@@ -2727,6 +2775,290 @@ function _showFilePlaybackControls(deviceId, fileName) {
   if (cpFilePause) cpFilePause.disabled = true;
   if (cpFileStop)  cpFileStop.disabled  = true;
   _clearTransferUi();
+}
+
+// ---------------------------------------------------------------------------
+// Audio file library (TASK-049)
+// ---------------------------------------------------------------------------
+
+/** Bytes threshold above which the quota-full warning is shown (90 % of quota). */
+const LIBRARY_QUOTA_WARN_RATIO = 0.9;
+
+/**
+ * Format a byte count as a human-readable string (B / KB / MB).
+ * @param {number} bytes
+ * @returns {string}
+ */
+function _formatBytes(bytes) {
+  if (bytes < 1024)       return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Update the storage-usage line and quota warning in the library panel.
+ */
+async function _updateLibraryStorageDisplay() {
+  const est = await getStorageUsage();
+  if (!est) {
+    if (cpLibraryStorage) cpLibraryStorage.textContent = '';
+    return;
+  }
+  const { usageBytes, quotaBytes } = est;
+  if (cpLibraryStorage) {
+    cpLibraryStorage.textContent = quotaBytes > 0
+      ? `Storage used: ${_formatBytes(usageBytes)} of ${_formatBytes(quotaBytes)}`
+      : `Storage used: ${_formatBytes(usageBytes)}`;
+  }
+  const nearFull = quotaBytes > 0 && (usageBytes / quotaBytes) >= LIBRARY_QUOTA_WARN_RATIO;
+  cpLibraryQuotaWarn?.classList.toggle('hidden', !nearFull);
+}
+
+/**
+ * Build a single library list-item element for one audio file record.
+ * @param {import('./storage.js').AudioFileRecord} record — metadata (no blob)
+ * @returns {HTMLElement}
+ */
+function _buildLibraryItem(record) {
+  const item = document.createElement('div');
+  item.className = 'audio-library__item';
+  item.dataset.id = record.id;
+
+  const typeLabel = record.type === 'recorded' ? 'Recording' : 'Upload';
+  const date      = new Date(record.dateAdded).toLocaleDateString();
+  const size      = _formatBytes(record.size);
+
+  item.innerHTML = `
+    <div class="audio-library__item-info">
+      <span class="audio-library__item-name" title="${escapeHtml(record.name)}">${escapeHtml(record.name)}</span>
+      <span class="audio-library__item-meta">${escapeHtml(typeLabel)} · ${escapeHtml(size)} · ${escapeHtml(date)}</span>
+    </div>
+    <div class="audio-library__item-actions" role="group" aria-label="Actions for ${escapeHtml(record.name)}">
+      <button class="audio-library__btn audio-library__btn--preview" title="Preview" aria-label="Preview ${escapeHtml(record.name)}">▶</button>
+      <button class="audio-library__btn audio-library__btn--rename"  title="Rename"  aria-label="Rename ${escapeHtml(record.name)}">✏️</button>
+      <button class="audio-library__btn audio-library__btn--send"    title="Send to baby" aria-label="Send ${escapeHtml(record.name)} to baby">📤</button>
+      <button class="audio-library__btn audio-library__btn--delete"  title="Delete"  aria-label="Delete ${escapeHtml(record.name)}">🗑</button>
+    </div>
+  `;
+
+  // Preview
+  item.querySelector('.audio-library__btn--preview')?.addEventListener('click', async () => {
+    await _previewLibraryFile(record.id);
+  });
+
+  // Rename
+  item.querySelector('.audio-library__btn--rename')?.addEventListener('click', () => {
+    _renameLibraryFile(record.id, record.name, item);
+  });
+
+  // Send to baby
+  item.querySelector('.audio-library__btn--send')?.addEventListener('click', async () => {
+    await _sendLibraryFileToBaby(record.id, record.name);
+  });
+
+  // Delete
+  item.querySelector('.audio-library__btn--delete')?.addEventListener('click', async () => {
+    if (!confirm(`Delete "${record.name}"?`)) return;
+    try {
+      await deleteAudioFile(record.id);
+      item.remove();
+      // Re-check empty state
+      if (cpLibraryList && cpLibraryList.children.length === 0) {
+        cpLibraryEmpty?.classList.remove('hidden');
+      }
+      await _updateLibraryStorageDisplay();
+    } catch (err) {
+      console.error('[parent] Library delete error:', err);
+    }
+  });
+
+  return item;
+}
+
+/**
+ * Load the audio library and render all stored files into the library panel.
+ * Called each time the control panel opens.
+ */
+async function _loadLibraryPanel() {
+  if (!cpLibraryList) return;
+  cpLibraryList.innerHTML = '';
+  cpLibraryEmpty?.classList.add('hidden');
+
+  try {
+    const files = await listAudioFiles();
+    // Sort by date added, newest first
+    files.sort((a, b) => b.dateAdded - a.dateAdded);
+
+    if (files.length === 0) {
+      cpLibraryEmpty?.classList.remove('hidden');
+    } else {
+      for (const f of files) {
+        cpLibraryList.appendChild(_buildLibraryItem(f));
+      }
+    }
+  } catch (err) {
+    console.error('[parent] Failed to load library:', err);
+  }
+
+  await _updateLibraryStorageDisplay();
+}
+
+/**
+ * Play a preview of a library file locally on the parent device.
+ * @param {string} id
+ */
+async function _previewLibraryFile(id) {
+  // Revoke any previous preview URL
+  if (_libraryPreviewUrl) {
+    URL.revokeObjectURL(_libraryPreviewUrl);
+    _libraryPreviewUrl = null;
+  }
+
+  try {
+    const record = await getAudioFile(id);
+    if (!record?.blob) return;
+
+    _libraryPreviewUrl = URL.createObjectURL(record.blob);
+
+    if (!_libraryPreviewAudio) {
+      _libraryPreviewAudio = new Audio();
+      _libraryPreviewAudio.addEventListener('ended', () => {
+        if (_libraryPreviewUrl) {
+          URL.revokeObjectURL(_libraryPreviewUrl);
+          _libraryPreviewUrl = null;
+        }
+      });
+    }
+
+    _libraryPreviewAudio.src = _libraryPreviewUrl;
+    _libraryPreviewAudio.currentTime = 0;
+    _libraryPreviewAudio.play().catch(e => console.warn('[parent] Preview play error:', e));
+  } catch (err) {
+    console.error('[parent] Preview error:', err);
+  }
+}
+
+/**
+ * Show an inline rename form for a library item.
+ * @param {string} id
+ * @param {string} currentName
+ * @param {HTMLElement} itemEl
+ */
+function _renameLibraryFile(id, currentName, itemEl) {
+  // Replace the info row with an inline input
+  const infoEl = itemEl.querySelector('.audio-library__item-info');
+  if (!infoEl) return;
+
+  const form = document.createElement('form');
+  form.className = 'audio-library__rename-form';
+  form.innerHTML = `
+    <input type="text" class="audio-library__rename-input" value="${escapeHtml(currentName)}"
+           maxlength="100" aria-label="New name" autocomplete="off" />
+    <button type="submit" class="audio-library__btn audio-library__btn--save">Save</button>
+    <button type="button" class="audio-library__btn audio-library__btn--cancel">Cancel</button>
+  `;
+
+  form.querySelector('.audio-library__btn--cancel')?.addEventListener('click', () => {
+    form.replaceWith(infoEl);
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = form.querySelector('.audio-library__rename-input');
+    const newName = input?.value.trim();
+    if (!newName) return;
+    try {
+      await updateAudioFileName(id, newName);
+      // Update the displayed name
+      infoEl.querySelector('.audio-library__item-name').textContent = newName;
+      infoEl.querySelector('.audio-library__item-name').title = newName;
+      form.replaceWith(infoEl);
+    } catch (err) {
+      console.error('[parent] Rename error:', err);
+    }
+  });
+
+  infoEl.replaceWith(form);
+  form.querySelector('.audio-library__rename-input')?.select();
+}
+
+/**
+ * Send a file from the library to the currently open baby device.
+ * @param {string} id       — IndexedDB record ID
+ * @param {string} fileName
+ */
+async function _sendLibraryFileToBaby(id, fileName) {
+  if (_activeTransfer) {
+    alert('A file transfer is already in progress.');
+    return;
+  }
+  const conn = getActiveConn();
+  if (!conn?.dataChannel) {
+    alert('No baby device connected. Open the control panel for a connected device first.');
+    return;
+  }
+
+  try {
+    const record = await getAudioFile(id);
+    if (!record?.blob) return;
+
+    const blob = record.blob;
+    const transferId  = crypto.randomUUID();
+    const totalChunks = Math.ceil(blob.size / FILE_CHUNK_SIZE);
+    const targetDeviceId = controlPanelDeviceId;
+
+    _activeTransfer = { id: transferId, deviceId: targetDeviceId, totalChunks, sentChunks: 0 };
+    _setTransferUiActive(true);
+
+    sendMessage(conn.dataChannel, MSG.FILE_META, {
+      id:          transferId,
+      name:        fileName,
+      size:        blob.size,
+      mimeType:    blob.type || 'audio/mpeg',
+      totalChunks,
+    });
+
+    const buffer = await blob.arrayBuffer();
+    const bytes  = new Uint8Array(buffer);
+
+    for (let seq = 0; seq < totalChunks; seq++) {
+      if (!_activeTransfer || _activeTransfer.id !== transferId) break;
+
+      const start  = seq * FILE_CHUNK_SIZE;
+      const end    = Math.min(start + FILE_CHUNK_SIZE, bytes.byteLength);
+      const chunk  = bytes.subarray(start, end);
+      let   binary = '';
+      for (let i = 0; i < chunk.length; i++) binary += String.fromCharCode(chunk[i]);
+      const data = btoa(binary);
+
+      sendMessage(conn.dataChannel, MSG.FILE_CHUNK, { id: transferId, seq, data });
+      _activeTransfer.sentChunks = seq + 1;
+      _updateTransferProgress(seq + 1, totalChunks);
+
+      if (seq % 10 === 9) await new Promise(r => setTimeout(r, 0));
+    }
+
+    if (_activeTransfer?.id === transferId) {
+      sendMessage(conn.dataChannel, MSG.FILE_COMPLETE, { id: transferId });
+      _lastTransferredFile.set(targetDeviceId ?? '', { name: fileName });
+      _activeTransfer = null;
+      _setTransferUiActive(false);
+      _showFilePlaybackControls(targetDeviceId ?? '', fileName);
+    }
+  } catch (err) {
+    console.error('[parent] Library send error:', err);
+    if (_activeTransfer) {
+      try {
+        const conn2 = getActiveConn();
+        if (conn2?.dataChannel) {
+          sendMessage(conn2.dataChannel, MSG.FILE_ABORT, { id: _activeTransfer.id, reason: err.message });
+        }
+      } catch (_) { /* ignore */ }
+      _activeTransfer = null;
+      _setTransferUiActive(false);
+      _clearTransferUi();
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3079,6 +3411,17 @@ async function _sendRecordingToBaby() {
       sendMessage(conn.dataChannel, MSG.FILE_COMPLETE, { id: transferId });
       _lastTransferredFile.set(targetDeviceId ?? '', { name: fileName });
       _activeTransfer = null;
+
+      // TASK-049: auto-save the recording to the parent's local audio library
+      // so it can be re-sent without re-recording.
+      saveAudioFile({
+        name:      fileName,
+        blob,
+        size:      blob.size,
+        duration:  0,
+        type:      'recorded',
+        dateAdded: Date.now(),
+      }).catch(err2 => console.warn('[parent] Library save (recording send) error:', err2));
 
       // Hide recording UI and show the shared playback controls
       _resetRecordingUi();

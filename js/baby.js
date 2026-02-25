@@ -27,7 +27,8 @@
 import {
   lsGet, lsSet, getSettings, saveSetting, SETTING_KEYS,
   getOrCreateDeviceId,
-  saveAudioFile, getAudioFile, deleteAudioFile,
+  saveAudioFile, getAudioFile, listAudioFiles, deleteAudioFile, updateAudioFileName,
+  getStorageUsage,
 } from './storage.js';
 import {
   initPeer, destroyPeer,
@@ -327,6 +328,12 @@ const orientationApiNote  = document.getElementById('orientation-api-note');  //
 const disconnectBtn       = document.getElementById('btn-disconnect');
 const settingsCloseBtn    = document.getElementById('baby-settings-close');
 const babyDefaultTrack    = document.getElementById('baby-default-track');  // TASK-032
+
+// Audio library (TASK-049)
+const babyLibraryList     = document.getElementById('baby-library-list');
+const babyLibraryEmpty    = document.getElementById('baby-library-empty');
+const babyLibraryStorage  = document.getElementById('baby-library-storage');
+const babyLibraryQuotaWarn = document.getElementById('baby-library-quota-warning');
 
 // Disconnected screen
 const reconnectStatus      = document.getElementById('reconnect-status');
@@ -2558,6 +2565,176 @@ function _notifyTransferFailed(id, reason) {
 }
 
 // ---------------------------------------------------------------------------
+// Audio file library (TASK-049)
+// ---------------------------------------------------------------------------
+
+/** Bytes threshold above which the quota-full warning is shown (90 % of quota). */
+const BABY_LIBRARY_QUOTA_WARN_RATIO = 0.9;
+
+/**
+ * Format a byte count as a human-readable string (B / KB / MB).
+ * @param {number} bytes
+ * @returns {string}
+ */
+function _formatBytes(bytes) {
+  if (bytes < 1024)        return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Escape a string for safe insertion into HTML attributes and text content.
+ * @param {string} str
+ * @returns {string}
+ */
+function _escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Update the storage-usage line and quota warning in the baby library panel.
+ */
+async function _updateBabyLibraryStorageDisplay() {
+  const est = await getStorageUsage();
+  if (!est) {
+    if (babyLibraryStorage) babyLibraryStorage.textContent = '';
+    return;
+  }
+  const { usageBytes, quotaBytes } = est;
+  if (babyLibraryStorage) {
+    babyLibraryStorage.textContent = quotaBytes > 0
+      ? `Storage used: ${_formatBytes(usageBytes)} of ${_formatBytes(quotaBytes)}`
+      : `Storage used: ${_formatBytes(usageBytes)}`;
+  }
+  const nearFull = quotaBytes > 0 && (usageBytes / quotaBytes) >= BABY_LIBRARY_QUOTA_WARN_RATIO;
+  babyLibraryQuotaWarn?.classList.toggle('hidden', !nearFull);
+}
+
+/**
+ * Build a single library list-item element for one audio file record on the baby device.
+ * @param {import('./storage.js').AudioFileRecord} record — metadata (no blob)
+ * @returns {HTMLElement}
+ */
+function _buildBabyLibraryItem(record) {
+  const item = document.createElement('div');
+  item.className = 'audio-library__item';
+  item.dataset.id = record.id;
+
+  const date = new Date(record.dateAdded).toLocaleDateString();
+  const size = _formatBytes(record.size);
+  const isCurrent = record.id === _receivedFileDbId;
+
+  item.innerHTML = `
+    <div class="audio-library__item-info">
+      <span class="audio-library__item-name" title="${_escapeHtml(record.name)}">${_escapeHtml(record.name)}</span>
+      <span class="audio-library__item-meta">${_escapeHtml(size)} · ${_escapeHtml(date)}${isCurrent ? ' · <strong>active</strong>' : ''}</span>
+    </div>
+    <div class="audio-library__item-actions" role="group" aria-label="Actions for ${_escapeHtml(record.name)}">
+      <button class="audio-library__btn audio-library__btn--play"    title="Play"            aria-label="Play ${_escapeHtml(record.name)}">▶</button>
+      <button class="audio-library__btn audio-library__btn--set"     title="Set as current"  aria-label="Set ${_escapeHtml(record.name)} as current track"${isCurrent ? ' aria-pressed="true"' : ''}>★</button>
+      <button class="audio-library__btn audio-library__btn--delete"  title="Delete"          aria-label="Delete ${_escapeHtml(record.name)}">🗑</button>
+    </div>
+  `;
+
+  // Play
+  item.querySelector('.audio-library__btn--play')?.addEventListener('click', async () => {
+    await _playBabyLibraryFile(record.id);
+  });
+
+  // Set as current track
+  item.querySelector('.audio-library__btn--set')?.addEventListener('click', () => {
+    _setLibraryFileAsCurrent(record.id);
+    // Refresh the list so the "active" marker updates
+    _loadBabyLibraryPanel().catch(() => {});
+  });
+
+  // Delete
+  item.querySelector('.audio-library__btn--delete')?.addEventListener('click', async () => {
+    if (!confirm(`Delete "${record.name}"?`)) return;
+    try {
+      // If this is the current active file, clear it
+      if (_receivedFileDbId === record.id) {
+        _stopPlayback();
+        _receivedFileDbId = null;
+        _audioBuffer = null;
+      }
+      await deleteAudioFile(record.id);
+      item.remove();
+      if (babyLibraryList && babyLibraryList.children.length === 0) {
+        babyLibraryEmpty?.classList.remove('hidden');
+      }
+      await _updateBabyLibraryStorageDisplay();
+    } catch (err) {
+      console.error('[baby] Library delete error:', err);
+    }
+  });
+
+  return item;
+}
+
+/**
+ * Load and render the audio library in the baby settings overlay.
+ * Called each time the settings overlay opens.
+ */
+async function _loadBabyLibraryPanel() {
+  if (!babyLibraryList) return;
+  babyLibraryList.innerHTML = '';
+  babyLibraryEmpty?.classList.add('hidden');
+
+  try {
+    const files = await listAudioFiles();
+    // Sort by date added, newest first
+    files.sort((a, b) => b.dateAdded - a.dateAdded);
+
+    if (files.length === 0) {
+      babyLibraryEmpty?.classList.remove('hidden');
+    } else {
+      for (const f of files) {
+        babyLibraryList.appendChild(_buildBabyLibraryItem(f));
+      }
+    }
+  } catch (err) {
+    console.error('[baby] Failed to load library:', err);
+  }
+
+  await _updateBabyLibraryStorageDisplay();
+}
+
+/**
+ * Play a file from the library locally on the baby device.
+ * Sets it as the active received file and begins playback.
+ * @param {string} id
+ */
+async function _playBabyLibraryFile(id) {
+  // Stop any currently playing audio first
+  if (_audioPlaying) _stopPlayback();
+
+  // Set as the active file
+  _receivedFileDbId = id;
+  _audioBuffer = null;  // Force re-decode from the new file
+  _audioOffset  = 0;
+
+  await _playReceivedFile();
+}
+
+/**
+ * Set a library file as the "current track" that will play when FILE_PLAY
+ * commands arrive from the parent, without immediately starting playback.
+ * @param {string} id
+ */
+function _setLibraryFileAsCurrent(id) {
+  if (_audioPlaying) _stopPlayback();
+  _receivedFileDbId = id;
+  _audioBuffer = null;
+  _audioOffset  = 0;
+  console.log('[baby] Library file set as current track:', id);
+}
+
+// ---------------------------------------------------------------------------
 // Audio playback (TASK-013)
 // ---------------------------------------------------------------------------
 
@@ -3110,6 +3287,8 @@ function exitTouchLock() {
   clearTimeout(_relockTimerId);
   state.locked = false;
   babySettingsOverlay?.classList.remove('hidden');
+  // Load audio library whenever the settings overlay opens (TASK-049)
+  _loadBabyLibraryPanel().catch(err => console.warn('[baby] Library load error:', err));
   // Auto re-lock after 30 seconds of inactivity (TASK-039)
   _relockTimerId = setTimeout(() => {
     _relockTimerId = null;

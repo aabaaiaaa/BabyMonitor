@@ -331,3 +331,43 @@ export async function deleteAudioFile(id) {
     req.onerror   = (e) => reject(e.target.error);
   });
 }
+
+/**
+ * Update the name of an existing audio file record (TASK-049).
+ * No-ops silently if the ID does not exist.
+ * @param {string} id
+ * @param {string} newName
+ * @returns {Promise<void>}
+ */
+export async function updateAudioFileName(id, newName) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(id);
+    getReq.onsuccess = (e) => {
+      const record = e.target.result;
+      if (!record) { resolve(); return; }
+      record.name = newName;
+      const putReq = store.put(record);
+      putReq.onsuccess = () => resolve();
+      putReq.onerror   = (ev) => reject(ev.target.error);
+    };
+    getReq.onerror = (e) => reject(e.target.error);
+  });
+}
+
+/**
+ * Estimate storage usage for IndexedDB / the origin (TASK-049).
+ * Uses the StorageManager API if available.
+ * @returns {Promise<{usageBytes: number, quotaBytes: number}|null>}
+ */
+export async function getStorageUsage() {
+  if (!navigator.storage?.estimate) return null;
+  try {
+    const { usage, quota } = await navigator.storage.estimate();
+    return { usageBytes: usage ?? 0, quotaBytes: quota ?? 0 };
+  } catch {
+    return null;
+  }
+}

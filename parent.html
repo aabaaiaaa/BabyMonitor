@@ -403,6 +403,22 @@
         </div>
       </section>
 
+      <!-- Audio file library (TASK-049): list of saved uploads and recordings -->
+      <section class="control-group" aria-labelledby="cp-library-label">
+        <h3 id="cp-library-label">Audio Library</h3>
+        <div class="audio-library">
+          <p class="audio-library__storage" id="cp-library-storage" aria-live="polite"></p>
+          <p class="audio-library__quota-warning hidden" id="cp-library-quota-warning"
+             role="alert">Storage nearly full — delete some files to free up space.</p>
+          <div id="cp-library-list" class="audio-library__list" aria-label="Saved audio files" aria-live="polite">
+            <!-- File rows inserted dynamically by js/parent.js -->
+          </div>
+          <p class="audio-library__empty hidden" id="cp-library-empty">
+            No saved files. Upload or record an audio clip to add it to your library.
+          </p>
+        </div>
+      </section>
+
       <!-- Camera controls -->
       <section class="control-group" aria-labelledby="cp-camera-label">
         <h3 id="cp-camera-label">Camera</h3>
