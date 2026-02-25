@@ -3557,6 +3557,15 @@ function handleDataMessage(deviceId, msg) {
         const threshold = profile?.batteryThreshold ?? 15;
         if (level < threshold && !charging) {
           showBatteryAlert(deviceId, level, entry.label);
+        } else {
+          // Battery recovered above threshold or is now charging (TASK-066):
+          // clear the battery alert banner and remove it from activeAlerts.
+          const key = `${deviceId}:battery`;
+          if (activeAlerts.has(key)) {
+            const existing = alertBanners?.querySelector(`[data-alert-key="${escapeHtml(key)}"]`);
+            if (existing) existing.remove();
+            activeAlerts.delete(key);
+          }
         }
       }
       break;
@@ -3717,6 +3726,15 @@ const _alertToneQueue = [];
 /** @type {boolean} True while an alert tone is currently playing. */
 let _alertTonePlaying = false;
 
+/** @type {number} Total alert tones enqueued (TASK-066 test hook). */
+let _alertToneEnqueueCount = 0;
+
+/** @type {string|null} Type of the last alert tone enqueued (TASK-066 test hook). */
+let _lastAlertToneType = null;
+
+/** @type {{title:string,body:string,tag:string}|null} Last notification recorded (TASK-066). */
+let _lastNotificationRecord = null;
+
 /**
  * Tone definitions per alert type.
  *   priority — lower number = played first when multiple tones are queued.
@@ -3820,6 +3838,10 @@ async function _playNextAlertTone() {
  * @param {'battery'|'movement'|'noise'} type
  */
 function _enqueueAlertTone(type) {
+  // TASK-066: always track enqueue attempts for E2E test assertions.
+  _alertToneEnqueueCount++;
+  _lastAlertToneType = type;
+
   // TASK-050: respect the global alert-sounds mute toggle.
   if (_alertToneMuted) return;
 
@@ -3975,6 +3997,9 @@ function _syncSnoozeUI(deviceId) {
  * @param {string} tag     — Dedup tag (prevents the same alert spawning twice)
  */
 function _sendBackgroundNotification(title, body, tag) {
+  // TASK-066: always record for E2E test assertions regardless of visibility.
+  _lastNotificationRecord = { title, body, tag };
+
   // Only send when the tab is hidden so we don't duplicate in-app banners.
   if (document.visibilityState !== 'hidden') return;
   // Guard: Notification API must be available and permission granted.
@@ -4546,4 +4571,76 @@ window.__testStopSpeakThrough = () => {
 window.__testSetPoolStartIndex = (deviceId, index) => {
   const entry = monitors.get(deviceId);
   if (entry) entry.backupPoolIndex = index;
+};
+
+// ---------------------------------------------------------------------------
+// E2E test hooks (TASK-066) — noise and battery alert assertions
+// ---------------------------------------------------------------------------
+
+/**
+ * Inject a simulated data-channel message from a baby device so Playwright
+ * tests can trigger alert logic without a live WebRTC connection.
+ *
+ * @param {string} deviceId  — target monitor's deviceId
+ * @param {string} type      — MSG type string (e.g. 'batteryLevel')
+ * @param {*}      [value]   — optional message payload
+ */
+window.__testInjectMessage = (deviceId, type, value) => {
+  handleDataMessage(deviceId, value !== undefined ? { type, value } : { type });
+};
+
+/**
+ * Override the noise threshold for a connected monitor entry directly.
+ * Bypasses the control-panel slider so tests can set precise values.
+ *
+ * @param {string} deviceId
+ * @param {number} threshold — 0 (most sensitive) … 100 (least sensitive)
+ */
+window.__testSetNoiseThreshold = (deviceId, threshold) => {
+  const entry = monitors.get(deviceId);
+  if (entry) entry.noiseThreshold = threshold;
+};
+
+/**
+ * Return the current contents of the activeAlerts Set as an array.
+ * Lets tests assert which alert keys are (or are not) active.
+ *
+ * @returns {string[]}
+ */
+window.__testGetActiveAlerts = () => Array.from(activeAlerts);
+
+/**
+ * Return the total number of alert tones that have been enqueued since
+ * the page loaded.  Incremented on every _enqueueAlertTone() call,
+ * regardless of whether the mute flag prevented actual playback.
+ *
+ * @returns {number}
+ */
+window.__testGetAlertToneCount = () => _alertToneEnqueueCount;
+
+/**
+ * Return the type of the most recently enqueued alert tone
+ * ('battery' | 'movement' | 'noise' | null).
+ *
+ * @returns {string|null}
+ */
+window.__testGetLastAlertToneType = () => _lastAlertToneType;
+
+/**
+ * Return the last notification that was passed to _sendBackgroundNotification,
+ * regardless of whether the tab was visible at the time.
+ * Returns null if no notification has been dispatched yet.
+ *
+ * @returns {{title:string,body:string,tag:string}|null}
+ */
+window.__testGetLastNotification = () => _lastNotificationRecord;
+
+/**
+ * Directly override the alert-tone mute flag.
+ * Useful in tests that need to verify tone-queue behaviour without side effects.
+ *
+ * @param {boolean} muted
+ */
+window.__testSetAlertToneMuted = (muted) => {
+  _alertToneMuted = muted;
 };
