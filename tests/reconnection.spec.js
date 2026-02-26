@@ -48,6 +48,7 @@ const {
   setupParentPeerJs,
   waitForBothConnected,
   ISOLATED_CONTEXT_OPTIONS,
+  mockPeerJsSignaling,
 } = require('./helpers');
 
 // ---------------------------------------------------------------------------
@@ -70,13 +71,20 @@ const {
 async function pairDevices(browser) {
   const { baby, parent, cleanup } = await createDevicePair(browser, { navigate: false });
 
+  // routeWebSocket MUST be registered before page.goto() to intercept the
+  // PeerJS WebSocket connection.  Set up the mock on both pages now, before
+  // any navigation, then pass skipMock:true to the setup helpers so they
+  // don't try to register a second (ineffective) route after goto().
+  await mockPeerJsSignaling(baby.page);
+  await mockPeerJsSignaling(parent.page);
+
   await Promise.all([
     baby.page.goto('/baby.html'),
     parent.page.goto('/parent.html'),
   ]);
 
-  const babyPeerId = await setupBabyPeerJs(baby.page);
-  await setupParentPeerJs(parent.page, babyPeerId);
+  const babyPeerId = await setupBabyPeerJs(baby.page, 15_000, { skipMock: true });
+  await setupParentPeerJs(parent.page, babyPeerId, { skipMock: true });
   await waitForBothConnected(baby.page, parent.page);
 
   const deviceId = await parent.page.evaluate(
@@ -129,10 +137,11 @@ async function waitForParentConnected(parentPage, timeoutMs = 60_000) {
 test.describe('Automatic reconnection (TASK-067)', () => {
 
   /**
-   * Generous per-test timeout: PeerJS re-registration and signalling
-   * round-trips can take up to ~30 s even with the pool-index optimisation.
+   * PeerJS signalling is mocked locally (peerjs-mock.js) so pairing is fast.
+   * 60 s covers the ICE failure detection window (~30 s) when a context is
+   * closed plus reconnect time.
    */
-  test.setTimeout(90_000);
+  test.setTimeout(60_000);
 
   // -------------------------------------------------------------------------
   // Test 1: Parent shows reconnecting overlay when baby disconnects (step 3)
@@ -400,6 +409,11 @@ test.describe('Automatic reconnection (TASK-067)', () => {
   // Quick Pair, which the test automates).
 
   test('parent reconnects after baby context close and reopen using first backup pool ID', async ({ browser }) => {
+    // This test runs two PeerJS pair flows and waits up to 30 s for ICE
+    // detection.  With the local PeerJS mock pairing is ~2 s each.  90 s
+    // covers: pair (2 s) + ICE detect (30 s) + new baby setup (5 s) +
+    // reconnect wait (30 s) + data channel test (5 s) = ~72 s.
+    test.setTimeout(90_000);
     const { baby, parent, deviceId, cleanup } = await pairDevices(browser);
 
     let newBabyContext = null;
@@ -473,6 +487,8 @@ test.describe('Automatic reconnection (TASK-067)', () => {
         storageState: modifiedStorage,
       });
       newBabyPage = await newBabyContext.newPage();
+      // Set up PeerJS mock for the new baby page before it initialises PeerJS.
+      await mockPeerJsSignaling(newBabyPage);
       await newBabyPage.goto('/baby.html');
 
       // Automate the pairing UI: tap overlay → Quick Pair (PeerJS).

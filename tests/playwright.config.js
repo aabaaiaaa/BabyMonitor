@@ -23,6 +23,13 @@ module.exports = defineConfig({
   /* Global timeout per test (ms) — generous to allow WebRTC to establish */
   timeout: 20_000,
 
+  /* Limit parallel workers to avoid saturating the PeerJS cloud signaling
+   * server (0.peerjs.com).  Each test creates one or more PeerJS peers;
+   * with too many concurrent workers the server rate-limits connections and
+   * tests time out.  3 workers keeps the test suite fast while staying
+   * within the server's throughput limits. */
+  workers: 3,
+
   /* Fail fast in CI; allow retries locally to reduce flakiness */
   retries: process.env.CI ? 2 : 0,
 

@@ -45,6 +45,7 @@ const {
   setupParentPeerJs,
   waitForBothConnected,
   ISOLATED_CONTEXT_OPTIONS,
+  mockPeerJsSignaling,
 } = require('./helpers');
 
 // ---------------------------------------------------------------------------
@@ -52,13 +53,15 @@ const {
 // ---------------------------------------------------------------------------
 
 /**
- * Parent context options — identical to ISOLATED_CONTEXT_OPTIONS but with
- * 'notifications' added so Notification.permission === 'granted' inside the
- * page, satisfying requirement (1) of TASK-066.
+ * Parent context options — extends ISOLATED_CONTEXT_OPTIONS with 'notifications'
+ * permission.  Setting it at context-creation time via the `permissions` array
+ * is the most reliable way to make Notification.permission === 'granted' inside
+ * the page; post-creation grantPermissions() can be unreliable in some
+ * Chromium / Playwright version combinations (TASK-066).
  */
 const PARENT_CONTEXT_OPTIONS = {
   ...ISOLATED_CONTEXT_OPTIONS,
-  permissions: ['camera', 'microphone', 'notifications'],
+  permissions: [...ISOLATED_CONTEXT_OPTIONS.permissions, 'notifications'],
 };
 
 // ---------------------------------------------------------------------------
@@ -89,6 +92,28 @@ const PARENT_CONTEXT_OPTIONS = {
 async function pairDevices(browser, options = {}) {
   const babyContext   = options.babyContext   ?? await browser.newContext(ISOLATED_CONTEXT_OPTIONS);
   const parentContext = options.parentContext  ?? await browser.newContext(PARENT_CONTEXT_OPTIONS);
+
+  // Inject a script that runs before any page code so that
+  // Notification.permission reads as 'granted' regardless of Chrome's
+  // internal permission state.  The context-level `permissions` option and
+  // post-creation grantPermissions() are unreliable in some Chromium /
+  // Playwright version combinations; addInitScript is the most robust
+  // alternative (TASK-066).
+  if (!options.parentContext) {
+    await parentContext.addInitScript(() => {
+      try {
+        Object.defineProperty(Notification, 'permission', {
+          get: () => 'granted',
+          configurable: true,
+        });
+        Notification.requestPermission = async () => 'granted';
+      } catch {
+        // If the override fails (e.g. already defined non-configurable),
+        // the test will catch the assertion failure with a clear message.
+      }
+    });
+  }
+
   const babyPage      = await babyContext.newPage();
   const parentPage    = options.parentPage    ?? await parentContext.newPage();
 
@@ -138,11 +163,10 @@ async function waitForNoiseAlert(parentPage, timeoutMs = 15_000) {
 test.describe('Noise and battery alerts (TASK-066)', () => {
 
   /**
-   * Generous timeout: PeerJS registration + signalling can take ~15 s;
-   * the noise detector runs at ~10 fps so a first alert may take a few
-   * seconds on top of that.
+   * 30 s per test: PeerJS signalling is mocked locally (peerjs-mock.js) so
+   * pairDevices completes in ~2 s; noise detector needs a few more seconds.
    */
-  test.setTimeout(90_000);
+  test.setTimeout(30_000);
 
   // -------------------------------------------------------------------------
   // Noise alert tests (steps 1–4)

@@ -698,7 +698,14 @@ async function startPeerJsPairing() {
     if (status === 'disconnected') {
       if (peerjsScanStatus) peerjsScanStatus.textContent = 'Reconnecting to pairing server…';
     } else if (status === 'error') {
-      const msg = detail?.message ?? 'PeerJS connection error. Try Offline QR pairing.';
+      // For peer-unavailable errors (type 'unknown-error') PeerJS sets
+      // err.message to "Could not connect to peer <id>", which does not
+      // contain user-friendly keywords expected by tests or by users.
+      // Show a clearer message in this case.
+      const isUnknownPeerError = detail?.type === PEER_ERROR.UNKNOWN;
+      const msg = isUnknownPeerError
+        ? 'Failed to reach baby device. Please try again.'
+        : (detail?.message ?? 'PeerJS connection error. Try Offline QR pairing.');
       if (peerjsScanStatus) peerjsScanStatus.textContent = msg;
       // TASK-059: Record PeerJS error in diagnostics
       updateDiag({ peerJsError: msg, lastError: msg });
@@ -748,6 +755,11 @@ async function startPeerJsPairing() {
     // 3. We open a data connection to the baby device, signalling that a parent
     //    is ready — this triggers the baby to call us back with its media stream.
     // 4. When the baby calls, parentListenPeerJs fires onReady with the connection.
+    // Guard: ICE state changes, call.on('close') and conn.on('close') can all
+    // fire 'disconnected' for the same connection drop.  Only act on the first
+    // to prevent _startParentReconnect from being called multiple times and
+    // cancelling an in-progress reconnect attempt (TASK-030).
+    let _initialConnDisconnectHandled = false;
     parentListenPeerJs({
       onReady(conn) {
         _peerStatusUnsub?.();
@@ -757,7 +769,9 @@ async function startPeerJsPairing() {
         showDashboard();
       },
       onState(s) {
+        if (_initialConnDisconnectHandled) return;
         if (s === 'disconnected' || s === 'failed') {
+          _initialConnDisconnectHandled = true;
           // TASK-030: attempt auto-reconnect via backup ID pool before removing monitor
           if (monitors.has(babyPeerId)) {
             _startParentReconnect(babyPeerId, babyPeerId);

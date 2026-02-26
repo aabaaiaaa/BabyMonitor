@@ -568,6 +568,12 @@ function _handleConnectionStateChange(connState) {
       // Close the broken connection object before re-registering
       try { activeConnection?.close?.(); } catch (_) { /* ignore */ }
       activeConnection = null;
+      // Discard any partially received file transfer (TASK-013) — the
+      // connection is gone so the transfer cannot complete.
+      if (_incomingTransfer) {
+        _incomingTransfer = null;
+        if (babyTransferStatus) babyTransferStatus.classList.add('hidden');
+      }
       _schedulePeerJsReconnect(1);
     } else if (_lastConnectionMethod === 'offline' && activeConnection?.peerConnection) {
       // Offline path: attempt ICE restart

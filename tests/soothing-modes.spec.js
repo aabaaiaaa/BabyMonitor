@@ -43,6 +43,7 @@ const {
   setupBabyPeerJs,
   setupParentPeerJs,
   waitForBothConnected,
+  mockPeerJsSignaling,
 } = require('./helpers');
 
 // ---------------------------------------------------------------------------
@@ -63,13 +64,20 @@ const {
 async function pairDevices(browser) {
   const { baby, parent, cleanup } = await createDevicePair(browser, { navigate: false });
 
+  // routeWebSocket MUST be registered before page.goto() to intercept the
+  // PeerJS WebSocket connection.  Set up the mock on both pages now, before
+  // any navigation, then pass skipMock:true to the setup helpers so they
+  // don't try to register a second (ineffective) route after goto().
+  await mockPeerJsSignaling(baby.page);
+  await mockPeerJsSignaling(parent.page);
+
   await Promise.all([
     baby.page.goto('/baby.html'),
     parent.page.goto('/parent.html'),
   ]);
 
-  const babyPeerId = await setupBabyPeerJs(baby.page);
-  await setupParentPeerJs(parent.page, babyPeerId);
+  const babyPeerId = await setupBabyPeerJs(baby.page, 15_000, { skipMock: true });
+  await setupParentPeerJs(parent.page, babyPeerId, { skipMock: true });
   await waitForBothConnected(baby.page, parent.page);
 
   return { baby, parent, cleanup };
@@ -94,8 +102,11 @@ async function pairDevices(browser) {
 async function activateModeViaUI(babyPage, mode) {
   // Open settings overlay — force bypasses opacity:0 on the faded status bar.
   await babyPage.click('#soothing-settings-btn', { force: true });
-  // Wait for the overlay to become visible (hidden class removed by exitTouchLock).
-  await babyPage.waitForSelector('#baby-settings-overlay:not(.hidden)', { timeout: 3_000 });
+  // Wait for the overlay to be in the DOM without the hidden class.
+  // state:'attached' is used instead of the default 'visible' because the CSS
+  // slide-up animation starts at opacity:0 (fill-mode:both), so the element is
+  // attached and interactive but not yet opaque when the class is first removed.
+  await babyPage.waitForSelector('#baby-settings-overlay:not(.hidden)', { state: 'attached', timeout: 6_000 });
   // Click the chosen mode button.
   await babyPage.click(`.mode-btn[data-mode="${mode}"]`);
 }
@@ -152,8 +163,9 @@ async function readCentreCanvasPixels(babyPage) {
 test.describe('Soothing modes (TASK-065)', () => {
 
   /**
-   * 60 s per test: generous to accommodate PeerJS registration (~15 s),
-   * mode activation, and the 5-second fade timer in test 4.
+   * 60 s per test: PeerJS signalling is mocked locally (peerjs-mock.js) so
+   * pairDevices completes in ~2 s.  The largest per-test overhead is the
+   * ICE failure detection window (~30 s) in test 7.
    */
   test.setTimeout(60_000);
 
@@ -401,6 +413,9 @@ test.describe('Soothing modes (TASK-065)', () => {
   // -------------------------------------------------------------------------
 
   test('music continues playing on the baby device after the parent disconnects (TASK-051)', async ({ browser }) => {
+    // ICE failure detection after parent.context.close() can take up to 30 s.
+    // pairDevices is fast (< 5 s) with the local PeerJS mock.
+    test.setTimeout(60_000);
     const { baby, parent, cleanup } = await pairDevices(browser);
     let parentClosed = false;
     try {
@@ -426,9 +441,11 @@ test.describe('Soothing modes (TASK-065)', () => {
 
       // Wait for the baby's peer state to leave 'connected', confirming the
       // disconnect has been detected and handleDisconnect() has run.
+      // ICE failure detection after a context close can take up to 30 s
+      // depending on network conditions and keepalive timeouts.
       await baby.page.waitForFunction(
         () => window.__peerState !== 'connected',
-        { timeout: 15_000 },
+        { timeout: 30_000 },
       );
 
       // TASK-051: handleDisconnect() must NOT stop audio.

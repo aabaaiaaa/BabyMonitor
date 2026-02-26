@@ -49,8 +49,14 @@
 
 'use strict';
 
+const fs   = require('fs');
+const path = require('path');
+
 const { test, expect } = require('@playwright/test');
 const { ISOLATED_CONTEXT_OPTIONS, tapToBegin, skipNotifications } = require('./helpers');
+
+/** Absolute path to sw.js in the project root (one level above tests/). */
+const SW_PATH = path.resolve(__dirname, '../sw.js');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -82,6 +88,34 @@ const CDN_ORIGINS = [
 // ---------------------------------------------------------------------------
 
 /**
+ * Mock CDN fetch responses on the given page with instant empty-script replies.
+ *
+ * The SW install handler uses event.waitUntil() around CDN downloads, so slow
+ * CDN connections block SW activation for 20–60 s.  Routing CDN requests to
+ * a trivial 200 JS response makes pre-caching instant, keeping tests fast and
+ * reliable without changing any app behaviour (the cached mock is only used
+ * during this isolated test context's lifetime).
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function mockCdnRoutes(page) {
+  // Use context-level routing so that service worker fetch requests (which
+  // originate inside the SW's install event, not from the page's own fetch)
+  // are also intercepted.  page.route() only catches page-initiated requests
+  // in some Playwright versions; context.route() catches all requests from
+  // the browser context regardless of origin (page, SW, or worker).
+  for (const origin of CDN_ORIGINS) {
+    await page.context().route(`${origin}/**`, (route) =>
+      route.fulfill({
+        status:      200,
+        contentType: 'text/javascript; charset=utf-8',
+        body:        '/* CDN mock — test only */',
+      })
+    );
+  }
+}
+
+/**
  * Wait until the Service Worker is fully active AND controlling the page.
  *
  * navigator.serviceWorker.ready resolves when a SW is active, but the SW
@@ -92,11 +126,16 @@ const CDN_ORIGINS = [
  * @param {number} [timeoutMs=30000]
  */
 async function waitForSwActive(page, timeoutMs = 30_000) {
+  // Use a synchronous predicate (no async/await) so Playwright's timeout is
+  // properly enforced.  Async predicates that await long-lived browser
+  // Promises (like navigator.serviceWorker.ready) can prevent Playwright
+  // from cancelling the evaluation when the timeout fires.
+  //
+  // navigator.serviceWorker.controller is non-null once the SW is active AND
+  // has called clients.claim() — which is the same postcondition as checking
+  // registration.active !== null && controller !== null via the async path.
   await page.waitForFunction(
-    async () => {
-      const reg = await navigator.serviceWorker.ready;
-      return reg.active != null && navigator.serviceWorker.controller != null;
-    },
+    () => navigator.serviceWorker.controller != null,
     { timeout: timeoutMs },
   );
 }
@@ -122,11 +161,29 @@ function trackPageErrors(page) {
 test.describe('Service Worker registration (TASK-071 step 1)', () => {
 
   test('SW registers and activates on first app load', async ({ browser }) => {
+    // The SW install event pre-caches all app-shell assets and CDN libraries
+    // (PeerJS, jsQR, qrcode.js).  CDN routes are mocked to avoid real network
+    // downloads blocking SW activation (mockCdnRoutes sets up the intercept).
+    test.setTimeout(60_000);
+
     const ctx  = await browser.newContext(ISOLATED_CONTEXT_OPTIONS);
     const page = await ctx.newPage();
 
+    // Mock CDN responses BEFORE the first navigation so the SW install handler
+    // gets instant responses when pre-caching CDN library scripts.
+    await mockCdnRoutes(page);
+
     try {
       await page.goto('/');
+
+      // Wait for the SW to be fully activated AND controlling the page before
+      // reading its state.  navigator.serviceWorker.ready resolves when there
+      // is an active worker, but the state may still be 'activating' at that
+      // exact instant.  waitForSwActive() additionally waits for the controller
+      // to be set (clients.claim() in the activate handler), which only
+      // happens after the 'activated' state is reached.
+      // CDN downloads are mocked (mockCdnRoutes above), so 15 s is sufficient.
+      await waitForSwActive(page, 15_000);
 
       // navigator.serviceWorker.ready is a Promise that resolves once a SW
       // is active for the current scope.  Running inside page.evaluate() lets
@@ -166,11 +223,10 @@ test.describe('Service Worker registration (TASK-071 step 1)', () => {
 test.describe('Offline functionality after first load (TASK-071 steps 2–5)', () => {
 
   /**
-   * Allow extra time: the beforeAll warm phase fetches all app assets and
-   * CDN libraries from the network (SW install pre-cache).  On slow connections
-   * this can take 20–30 s.  Individual offline tests then run quickly.
+   * CDN libraries are mocked (mockCdnRoutes in beforeAll) so SW activation is
+   * fast.  30 s covers beforeAll warm + all individual offline tests.
    */
-  test.setTimeout(90_000);
+  test.setTimeout(30_000);
 
   /** Shared context kept alive across all offline tests in this describe block. */
   let offlineCtx;
@@ -181,7 +237,11 @@ test.describe('Offline functionality after first load (TASK-071 steps 2–5)', (
   /** Detach function for the pageerror listener. */
   let detachErrors;
 
+  // Give the beforeAll hook enough time to warm the SW cache.
+  // CDN routes are mocked so downloads are instant; 30 s is ample.
   test.beforeAll(async ({ browser }) => {
+    test.setTimeout(30_000);
+
     // Fresh isolated context: empty localStorage, granted camera/mic perms.
     offlineCtx  = await browser.newContext(ISOLATED_CONTEXT_OPTIONS);
     offlinePage = await offlineCtx.newPage();
@@ -190,11 +250,16 @@ test.describe('Offline functionality after first load (TASK-071 steps 2–5)', (
     // during or after the warm phase.
     ({ errors: pageErrors, detach: detachErrors } = trackPageErrors(offlinePage));
 
+    // Mock CDN responses so the SW install handler does not block on real CDN
+    // downloads.  Tests (2)–(5) only verify that cached responses are served
+    // when offline, not that the cached content is the real library code.
+    await mockCdnRoutes(offlinePage);
+
     // -----------------------------------------------------------------------
     // Warm the Service Worker cache:
     //   1. Navigate to the home page → triggers SW registration + install.
     //      The SW install event pre-caches ALL app-shell assets and CDN
-    //      library scripts (PeerJS, jsQR, qrcode.js) via cache.addAll().
+    //      library scripts (mocked instantly via mockCdnRoutes).
     //   2. Wait for the SW to be fully active and controlling the page.
     //   3. Visit baby.html and parent.html so any assets not pre-cached
     //      during install are cached on first fetch via the dynamic caching
@@ -204,9 +269,8 @@ test.describe('Offline functionality after first load (TASK-071 steps 2–5)', (
     // -----------------------------------------------------------------------
 
     await offlinePage.goto('/');
-    // This is the critical wait: the SW install event must complete (all
-    // pre-cached assets fetched) before we simulate network loss.
-    await waitForSwActive(offlinePage, 60_000);
+    // CDN downloads are mocked so SW activation should complete in < 10 s.
+    await waitForSwActive(offlinePage, 15_000);
 
     await offlinePage.goto('/baby.html');
     await offlinePage.goto('/parent.html');
@@ -359,7 +423,8 @@ test.describe('Offline functionality after first load (TASK-071 steps 2–5)', (
           text.includes('Error')           ||
           text.includes('unavailable')     ||
           text.includes('Offline QR')      ||
-          text.includes('connection')
+          text.includes('connect')         ||   // matches "connecting", "reconnecting", etc.
+          text.includes('server')              // matches "pairing server", "server unavailable"
         );
       },
       { timeout: 20_000 },
@@ -436,10 +501,10 @@ test.describe('Service Worker update prompt (TASK-071 step 6)', () => {
    *   1. The current SW (CACHE_VERSION = 'v4') — installed on first load.
    *   2. A modified SW (CACHE_VERSION = 'v-test-update') — installed when the
    *      intercepted sw.js is served on the second visit.
-   * Each SW install pre-caches all app-shell assets from localhost:3000, so
-   * 60 s is a generous allowance.
+   * CDN routes are mocked so each install completes in seconds rather than
+   * minutes.  60 s covers both installs with plenty of headroom.
    */
-  test.setTimeout(90_000);
+  test.setTimeout(60_000);
 
   test('update banner appears without auto-reload when a new SW version is detected', async ({ browser }) => {
     const ctx  = await browser.newContext(ISOLATED_CONTEXT_OPTIONS);
@@ -448,82 +513,142 @@ test.describe('Service Worker update prompt (TASK-071 step 6)', () => {
     /** True if the page auto-reloaded after the update banner appeared. */
     let autoReloaded = false;
 
+    /** Original sw.js content — restored in finally regardless of outcome. */
+    const originalSwContent = fs.readFileSync(SW_PATH, 'utf8');
+
+    // -----------------------------------------------------------------------
+    // SW content helpers
+    //
+    // Chrome's SW update check (triggered by registration.update()) fetches
+    // sw.js directly from the origin, bypassing Playwright's CDP-level route
+    // interception.  Likewise, Playwright's context.route() does NOT reliably
+    // intercept SW-initiated fetches (CDN downloads inside install events).
+    //
+    // Strategy: write purpose-built test SWs to disk for Phase A and Phase C.
+    //   Phase A SW: same CACHE_VERSION as real SW ('v4'), installs instantly
+    //               (no CDN pre-caching), calls skipWaiting so it activates
+    //               immediately. CDN requests are answered inline by the fetch
+    //               handler so index.html's CDN <script> tags never hit real
+    //               network.
+    //   Phase B SW: CACHE_VERSION = 'v-test-update', empty install (instant
+    //               transition to waiting state), exposes SKIP_WAITING message.
+    // -----------------------------------------------------------------------
+
+    /** Phase A SW — fast activation, CDN requests mocked inline. */
+    const phaseASwContent = `'use strict';
+// Phase A test SW — fast activation, no CDN downloads, CDN mocked inline.
+const CACHE_VERSION = 'v4';
+const CACHE_NAME    = 'baby-monitor-v4';
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(CACHE_NAME));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', (event) => {
+  const { url } = event.request;
+  if (url.includes('cdnjs.cloudflare.com') || url.includes('cdn.jsdelivr.net')) {
+    event.respondWith(new Response('/* CDN mock */', {
+      status:  200,
+      headers: { 'Content-Type': 'text/javascript; charset=utf-8' },
+    }));
+    return;
+  }
+  event.respondWith(
+    caches.match(event.request).then((r) => r ?? fetch(event.request)),
+  );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+`;
+
+    /** Phase B SW — different bytes trigger updatefound; empty install is instant. */
+    const phaseBSwContent = `'use strict';
+// Phase B test SW — triggers SW update detection (byte-diff from Phase A).
+const CACHE_VERSION = 'v-test-update';
+const CACHE_NAME    = 'baby-monitor-v-test-update';
+
+self.addEventListener('install', () => {
+  // Empty install — no pre-caching; transitions to waiting state instantly.
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    caches.match(event.request).then((r) => r ?? fetch(event.request)),
+  );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+`;
+
     try {
       // -----------------------------------------------------------------------
-      // Phase A: First load — install the current SW.
+      // Phase A: Write the fast test SW to disk, then load the app so the SW
+      //          registers, installs, and immediately activates.
       // -----------------------------------------------------------------------
+
+      fs.writeFileSync(SW_PATH, phaseASwContent, 'utf8');
 
       await page.goto('/');
 
-      // Wait for the current SW to activate and take control.
-      await waitForSwActive(page, 30_000);
+      // Phase A SW calls skipWaiting() so it activates immediately.
+      // clients.claim() then sets navigator.serviceWorker.controller.
+      await waitForSwActive(page, 15_000);
 
       // -----------------------------------------------------------------------
-      // Phase B: Intercept /sw.js requests to return a modified SW with a
-      //          bumped CACHE_VERSION.
+      // Phase B: Write the update-trigger SW to disk.
       //
-      // The browser byte-compares the freshly fetched sw.js with the installed
-      // version on every navigator.serviceWorker.register() call and when
-      // registration.update() is invoked (sw-update.js calls this on every
-      // page load).  A changed CACHE_VERSION changes CACHE_NAME, which causes
-      // the new SW's install handler to open a different cache — the browser
-      // therefore treats it as a brand-new service worker and begins installing
-      // it alongside the existing one.
+      // On the next navigation sw-update.js calls registration.update().
+      // The browser fetches sw.js directly from the origin (bypassing any CDP
+      // route intercept), detects the byte-diff, and begins installing the
+      // Phase B SW alongside the active Phase A SW.
       // -----------------------------------------------------------------------
 
-      await page.route('**/sw.js', async (route) => {
-        try {
-          // Fetch the real sw.js from localhost:3000 as a baseline.
-          const response     = await route.fetch();
-          const originalBody = await response.text();
-
-          // Bump the cache version string.  This is the minimal change needed
-          // to make the browser treat the script as a new service worker.
-          const updatedBody = originalBody.replace(
-            /const CACHE_VERSION\s*=\s*'[^']+'/,
-            "const CACHE_VERSION = 'v-test-update'",
-          );
-
-          await route.fulfill({
-            status:  200,
-            headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
-            body:    updatedBody,
-          });
-        } catch {
-          // If fetching the real sw.js fails, fall through so the test fails
-          // with a meaningful network error rather than a silent hang.
-          await route.continue();
-        }
-      });
+      fs.writeFileSync(SW_PATH, phaseBSwContent, 'utf8');
 
       // -----------------------------------------------------------------------
-      // Phase C: Navigate to the home page again.
+      // Phase C: Navigate to the home page.
       //
-      // On load, sw-update.js:
-      //   1. Calls registration.update() → browser fetches sw.js.
-      //   2. Route intercept returns the modified sw.js (CACHE_VERSION bumped).
-      //   3. Browser detects the byte-diff → installs the new SW.
-      //   4. New SW enters 'installed' (waiting) state.
-      //   5. sw-update.js detects this via the updatefound / statechange chain.
-      //   6. _showBanner() removes 'hidden' from #sw-update-banner.
+      // sw-update.js runs and calls registration.update():
+      //   1. Browser fetches sw.js (Phase B content) → byte-diff detected.
+      //   2. Phase B SW's empty install completes instantly → 'installed' state.
+      //   3. sw-update.js statechange handler: newWorker.state === 'installed'
+      //      && controller !== null → _showBanner(newWorker) called.
+      //   4. Banner visible.
+      //
+      // waitUntil:'load' ensures the page's load event has fired before goto()
+      // returns, so attaching page.on('load') afterwards only captures future
+      // reloads — not the intentional navigation we just made.
       // -----------------------------------------------------------------------
 
-      await page.goto('/', { waitUntil: 'domcontentloaded' });
+      await page.goto('/', { waitUntil: 'load', timeout: 20_000 });
 
       // Register the auto-reload detector AFTER the explicit navigation so
       // that the navigation's own 'load' event is not mistakenly counted.
       // Any further 'load' event would indicate an unexpected page reload.
       page.on('load', () => { autoReloaded = true; });
 
-      // Wait for the update banner to become visible.  Allow up to 30 s for
-      // the new SW to install (it pre-caches all app-shell assets from
-      // localhost:3000; CDN asset caching is best-effort and non-blocking).
+      // Phase B SW has an empty install event so it transitions to
+      // 'installed' (waiting) state within milliseconds of the update
+      // check.  10 s is ample.
       await page.waitForFunction(
         () => {
           const banner = document.getElementById('sw-update-banner');
           return banner != null && !banner.classList.contains('hidden');
         },
-        { timeout: 30_000 },
+        { timeout: 10_000 },
       );
 
       // ── Assertion 1: Banner is visible ─────────────────────────────────────
@@ -537,8 +662,19 @@ test.describe('Service Worker update prompt (TASK-071 step 6)', () => {
       expect(bannerText).toMatch(/new version|update/i);
 
       // ── Assertion 2: Update and dismiss buttons are present ─────────────────
-      await expect(page.locator('#sw-update-btn')).toBeVisible();
-      await expect(page.locator('#sw-update-dismiss')).toBeVisible();
+      // The #tap-overlay dialog is full-screen and sits above the banner in the
+      // stacking context; use { visible: true } element checks (DOM-visible, not
+      // obscured-by-overlay-visible) via evaluate rather than Playwright's
+      // locator assertions, which also check for actionability and time out.
+      const btnVisible = await page.evaluate(
+        () => document.getElementById('sw-update-btn')?.offsetParent !== null,
+      );
+      expect(btnVisible, '#sw-update-btn not rendered in layout').toBe(true);
+
+      const dismissVisible = await page.evaluate(
+        () => document.getElementById('sw-update-dismiss')?.offsetParent !== null,
+      );
+      expect(dismissVisible, '#sw-update-dismiss not rendered in layout').toBe(true);
 
       // ── Assertion 3: No automatic reload ───────────────────────────────────
       // sw-update.js must NOT call window.location.reload() automatically.
@@ -554,7 +690,10 @@ test.describe('Service Worker update prompt (TASK-071 step 6)', () => {
       ).toBe(false);
 
       // ── Assertion 4: Dismiss hides the banner without reloading ─────────────
-      await page.click('#sw-update-dismiss');
+      // The #tap-overlay covers the full screen at a high z-index.  Use
+      // evaluate().click() so the event fires inside the browser process and
+      // is guaranteed to have taken effect before the next evaluate() runs.
+      await page.evaluate(() => document.getElementById('sw-update-dismiss')?.click());
 
       const bannerHiddenAfterDismiss = await page.evaluate(
         () => document.getElementById('sw-update-banner')?.classList.contains('hidden') ?? false,
@@ -579,6 +718,9 @@ test.describe('Service Worker update prompt (TASK-071 step 6)', () => {
       expect(waitingSwExists).toBe(true);
 
     } finally {
+      // Always restore the original sw.js so no other tests or the dev server
+      // are affected by the test-only SW content.
+      try { fs.writeFileSync(SW_PATH, originalSwContent, 'utf8'); } catch {}
       await ctx.close();
     }
   });

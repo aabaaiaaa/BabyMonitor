@@ -26,6 +26,8 @@
 
 'use strict';
 
+const { mockPeerJsSignaling } = require('./peerjs-mock');
+
 /**
  * Fake media launch args applied to every context so getUserMedia succeeds
  * without real hardware.  These mirror the args in playwright.config.js and
@@ -172,10 +174,16 @@ async function skipNotifications(page) {
 /**
  * Dismiss the tap-to-begin overlay.
  *
+ * Skips the click if the overlay is already hidden (e.g. the parent page has
+ * already been initialised in a previous pairing step).
+ *
  * @param {import('@playwright/test').Page} page
  */
 async function tapToBegin(page) {
-  await page.click('#tap-overlay');
+  const overlay = page.locator('#tap-overlay');
+  if (await overlay.isVisible()) {
+    await overlay.click();
+  }
 }
 
 /**
@@ -184,9 +192,18 @@ async function tapToBegin(page) {
  *
  * @param {import('@playwright/test').Page} page
  * @param {number} [peerJsTimeoutMs=15000]
+ * @param {object} [opts]
+ * @param {boolean} [opts.skipMock=false]  Set true when mockPeerJsSignaling was
+ *   already called on the page BEFORE page.goto() (required for routeWebSocket
+ *   to intercept the PeerJS WebSocket connection).
  * @returns {Promise<string>}
  */
-async function setupBabyPeerJs(page, peerJsTimeoutMs = 15_000) {
+async function setupBabyPeerJs(page, peerJsTimeoutMs = 15_000, { skipMock = false } = {}) {
+  // Set up the PeerJS signaling mock BEFORE clicking "Quick Pair (PeerJS)" so
+  // the WebSocket route intercept is in place when PeerJS initialises.
+  // NOTE: routeWebSocket only works when registered BEFORE page.goto().  If the
+  // caller already called mockPeerJsSignaling before goto(), pass skipMock:true.
+  if (!skipMock) await mockPeerJsSignaling(page);
   await tapToBegin(page);
   await page.waitForSelector('#pairing-section:not(.hidden)', { timeout: 5_000 });
   await page.click('#method-peerjs');
@@ -208,8 +225,14 @@ async function setupBabyPeerJs(page, peerJsTimeoutMs = 15_000) {
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} babyPeerId
+ * @param {object} [opts]
+ * @param {boolean} [opts.skipMock=false]  Set true when mockPeerJsSignaling was
+ *   already called on the page BEFORE page.goto().
  */
-async function setupParentPeerJs(page, babyPeerId) {
+async function setupParentPeerJs(page, babyPeerId, { skipMock = false } = {}) {
+  // Set up the PeerJS signaling mock BEFORE clicking "Quick Pair (PeerJS)" so
+  // the WebSocket route intercept is in place when PeerJS initialises.
+  if (!skipMock) await mockPeerJsSignaling(page);
   await skipNotifications(page);
   await tapToBegin(page);
   await page.waitForSelector('#pairing-section:not(.hidden)', { timeout: 5_000 });
@@ -249,4 +272,5 @@ module.exports = {
   setupBabyPeerJs,
   setupParentPeerJs,
   waitForBothConnected,
+  mockPeerJsSignaling,
 };

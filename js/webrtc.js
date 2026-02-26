@@ -227,6 +227,27 @@ export function parentListenPeerJs(callbacks, expectedPeerId = null) {
   let peerConn     = null;
   /** @type {boolean} onReady already fired — guard against double invocation */
   let notified     = false;
+  /** @type {boolean} ICE state listener attached — guard against duplicate */
+  let iceListenerAttached = false;
+
+  /**
+   * Attach a one-time iceconnectionstatechange listener to peerConn so that
+   * abrupt context closes (e.g. device killed) are detected in ~5 s instead
+   * of the 30-40 s it takes for PeerJS's own 'close' event to fire.
+   */
+  function attachIceMonitor() {
+    if (iceListenerAttached || !peerConn) return;
+    iceListenerAttached = true;
+    let iceFired = false;
+    peerConn.addEventListener('iceconnectionstatechange', () => {
+      if (iceFired) return;
+      if (peerConn.iceConnectionState === 'disconnected' ||
+          peerConn.iceConnectionState === 'failed') {
+        iceFired = true;
+        onState?.('disconnected');
+      }
+    });
+  }
 
   function tryNotifyReady() {
     if (notified || !remoteStream || !dataConn?.open) return;
@@ -259,6 +280,7 @@ export function parentListenPeerJs(callbacks, expectedPeerId = null) {
     // (call.peerConnection is set synchronously by PeerJS after answer())
     if (call.peerConnection) {
       peerConn = call.peerConnection;
+      attachIceMonitor();
     }
 
     call.on('stream', (stream) => {
@@ -267,6 +289,7 @@ export function parentListenPeerJs(callbacks, expectedPeerId = null) {
       if (!peerConn && call.peerConnection) {
         peerConn = call.peerConnection;
       }
+      attachIceMonitor();
       tryNotifyReady();
     });
 
