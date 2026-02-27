@@ -30,6 +30,13 @@
  *   - A `message` listener in sw.js responds to that message.
  */
 
+// Read the version stamped into the page at deploy time.
+const _appVersion = document.querySelector('meta[name="app-version"]')?.content ?? 'dev';
+
+// Populate the version display in the settings screen (parent page only).
+const _versionEl = document.getElementById('app-version-value');
+if (_versionEl) _versionEl.textContent = _appVersion;
+
 // No-op if Service Worker is not supported in this browser.
 if (!('serviceWorker' in navigator)) {
   // Nothing to do.
@@ -65,6 +72,8 @@ if (!('serviceWorker' in navigator)) {
     if (!bannerEl) return;
 
     _waitingSW = waitingSW;
+    const msgEl = bannerEl.querySelector('.sw-update-banner__msg');
+    if (msgEl) msgEl.textContent = `A new version is available (${_appVersion}) — tap to update.`;
     bannerEl.classList.remove('hidden');
 
     console.log('[sw-update] Update available — banner shown (TASK-053)');

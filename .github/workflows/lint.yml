@@ -34,6 +34,12 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
+      - name: Stamp cache version
+        run: |
+          VERSION=$(date -u '+%Y%m%d-%H%M%S')
+          sed -i "s/const CACHE_VERSION = '[^']*'/const CACHE_VERSION = '${VERSION}'/" sw.js
+          sed -i "s/<meta name=\"app-version\" content=\"[^\"]*\"/<meta name=\"app-version\" content=\"${VERSION}\"/" index.html parent.html baby.html
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .

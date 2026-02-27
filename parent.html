@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#1a1a2e" />
   <meta name="description" content="Baby Monitor — parent device view." />
+  <meta name="app-version" content="dev" />
   <title>Baby Monitor — Parent Device</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/main.css" />
@@ -796,6 +797,14 @@
         <div class="settings-actions">
           <button id="btn-show-diag" class="action-btn action-btn--secondary">View connection details</button>
         </div>
+      </section>
+
+      <!-- App version -->
+      <section class="settings-group" aria-labelledby="app-version-label">
+        <h3 id="app-version-label">App Version</h3>
+        <p class="settings-group__desc" id="app-version-display">
+          Version: <span id="app-version-value">dev</span>
+        </p>
       </section>
 
       <!-- Share with another parent device (TASK-058) -->
