@@ -42,6 +42,7 @@ import {
   scanAuto, scanSingle, scanMulti, stopScanner,
 } from './qr.js';
 import { showCompatWarnings } from './browser-compat.js';
+import { escapeHtml } from './utils.js';
 import { maybeShowPwaInstallBanner } from './pwa-install.js';
 import {
   updateDiag, resetDiag, renderDiag, recordBackupIdTried,
@@ -107,6 +108,9 @@ let localStream = null;
 
 /** @type {object|null} Active normalised connection */
 let activeConnection = null;
+
+/** Incremented on each reconnect attempt; used to discard stale onReady callbacks. */
+let _connGeneration = 0;
 
 /** @type {Function|null} Unsubscribe function for the current peer status listener */
 let _peerStatusUnsub = null;
@@ -485,7 +489,10 @@ function _advanceIdPoolForReconnect() {
     console.warn('[baby] Backup ID pool exhausted — cannot advance for reconnect (TASK-061)');
     return null;
   }
-  lsSet(SETTING_KEYS.BACKUP_POOL_INDEX, nextIndex);
+  if (!lsSet(SETTING_KEYS.BACKUP_POOL_INDEX, nextIndex)) {
+    console.warn('[baby] Failed to persist pool index advance — aborting reconnect to avoid ID reuse (TASK-061)');
+    return null;
+  }
   const nextId = pool[nextIndex];
   console.log('[baby] Advanced pool index to', nextIndex, '— next peer ID:', nextId, '(TASK-061)');
   // Check replenishment now so parents receive new IDs over the reconnected channel.
@@ -627,6 +634,8 @@ async function _attemptPeerJsReconnect(attempt) {
   // TASK-059: Record backup ID being tried in diagnostics
   recordBackupIdTried(nextId);
 
+  const gen = ++_connGeneration;
+
   try {
     // Step 2: re-register with PeerJS under the new backup ID
     await initPeer(null, null, nextId);
@@ -637,6 +646,7 @@ async function _attemptPeerJsReconnect(attempt) {
     await babyCallParent(_parentPeerId, localStream, {
       onReady(conn) {
         if (!_isReconnecting) return; // User aborted during handshake
+        if (_connGeneration !== gen) { try { conn.close?.(); } catch { /* ignore */ } return; } // Stale attempt — a newer one already won
         _cancelAutoReconnect();
         activeConnection = conn;
         updateConnectionStatus('connected');
@@ -1767,6 +1777,7 @@ function startSoothingMode(mode) {
   if ((state.soothingMode === 'music' || state.soothingMode === 'combined') &&
       mode !== 'music' && mode !== 'combined') {
     _stopMusicMode();
+    cancelFadeTimer();
   }
 
   state.soothingMode = mode;
@@ -2765,18 +2776,6 @@ function _formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/**
- * Escape a string for safe insertion into HTML attributes and text content.
- * @param {string} str
- * @returns {string}
- */
-function _escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 /**
  * Update the storage-usage line and quota warning in the baby library panel.
@@ -2813,13 +2812,13 @@ function _buildBabyLibraryItem(record) {
 
   item.innerHTML = `
     <div class="audio-library__item-info">
-      <span class="audio-library__item-name" title="${_escapeHtml(record.name)}">${_escapeHtml(record.name)}</span>
-      <span class="audio-library__item-meta">${_escapeHtml(size)} · ${_escapeHtml(date)}${isCurrent ? ' · <strong>active</strong>' : ''}</span>
+      <span class="audio-library__item-name" title="${escapeHtml(record.name)}">${escapeHtml(record.name)}</span>
+      <span class="audio-library__item-meta">${escapeHtml(size)} · ${escapeHtml(date)}${isCurrent ? ' · <strong>active</strong>' : ''}</span>
     </div>
-    <div class="audio-library__item-actions" role="group" aria-label="Actions for ${_escapeHtml(record.name)}">
-      <button class="audio-library__btn audio-library__btn--play"    title="Play"            aria-label="Play ${_escapeHtml(record.name)}">▶</button>
-      <button class="audio-library__btn audio-library__btn--set"     title="Set as current"  aria-label="Set ${_escapeHtml(record.name)} as current track"${isCurrent ? ' aria-pressed="true"' : ''}>★</button>
-      <button class="audio-library__btn audio-library__btn--delete"  title="Delete"          aria-label="Delete ${_escapeHtml(record.name)}">🗑</button>
+    <div class="audio-library__item-actions" role="group" aria-label="Actions for ${escapeHtml(record.name)}">
+      <button class="audio-library__btn audio-library__btn--play"    title="Play"            aria-label="Play ${escapeHtml(record.name)}">▶</button>
+      <button class="audio-library__btn audio-library__btn--set"     title="Set as current"  aria-label="Set ${escapeHtml(record.name)} as current track"${isCurrent ? ' aria-pressed="true"' : ''}>★</button>
+      <button class="audio-library__btn audio-library__btn--delete"  title="Delete"          aria-label="Delete ${escapeHtml(record.name)}">🗑</button>
     </div>
   `;
 
@@ -2832,7 +2831,7 @@ function _buildBabyLibraryItem(record) {
   item.querySelector('.audio-library__btn--set')?.addEventListener('click', () => {
     _setLibraryFileAsCurrent(record.id);
     // Refresh the list so the "active" marker updates
-    _loadBabyLibraryPanel().catch(() => {});
+    _loadBabyLibraryPanel().catch(e => console.warn('[baby] Library refresh failed:', e));
   });
 
   // Delete
@@ -3091,13 +3090,17 @@ async function _playReceivedFile() {
     await _ensureAudioCtx();
 
     if (!_audioBuffer) {
-      const record = await getAudioFile(_receivedFileDbId);
+      const fileId = _receivedFileDbId; // capture before any await yields
+      const record = await getAudioFile(fileId);
       if (!record?.blob) {
         console.warn('[baby] Received file not found in IndexedDB');
         return;
       }
       const arrayBuffer = await record.blob.arrayBuffer();
-      _audioBuffer = await _audioCtx.decodeAudioData(arrayBuffer);
+      if (_receivedFileDbId !== fileId) return; // file changed during decode
+      const decoded = await _audioCtx.decodeAudioData(arrayBuffer);
+      if (_receivedFileDbId !== fileId) return; // file changed during decode
+      _audioBuffer = decoded;
     }
 
     _createAndStartSource(0);
@@ -3149,7 +3152,8 @@ function _pausePlayback() {
  */
 function _resumePlayback() {
   if (_audioPlaying || !_audioBuffer) return;
-  _ensureAudioCtx().then(() => _createAndStartSource(_audioOffset)).catch(err => {
+  const offset = _audioOffset; // capture before yielding to the event loop
+  _ensureAudioCtx().then(() => _createAndStartSource(offset)).catch(err => {
     console.error('[baby] Failed to resume audio:', err);
   });
 }
@@ -3180,23 +3184,27 @@ function handleDataMessage(msg) {
   window.__lastBabyMessage = msg;
   switch (msg.type) {
     case MSG.SET_MODE:
+      if (!['candle','water','stars','music','combined','off'].includes(msg.value)) return;
       startSoothingMode(msg.value);
       sendStateSnapshot();
       break;
 
-    case MSG.SET_VOLUME:
-      state.musicVolume = msg.value;
+    case MSG.SET_VOLUME: {
+      if (typeof msg.value !== 'number' || !isFinite(msg.value)) return;
+      const volume = Math.max(0, Math.min(100, msg.value));
+      state.musicVolume = volume;
       // Apply to the master GainNode — covers both file-transfer audio (TASK-013)
       // and bundled soothing tracks (TASK-019) which share the same gain node.
       if (_audioGain && _audioCtx) {
         _audioGain.gain.setTargetAtTime(
-          state.musicVolume / 100,
+          volume / 100,
           _audioCtx.currentTime,
           0.05, // 50 ms smoothing
         );
       }
       sendStateSnapshot();
       break;
+    }
 
     case MSG.SET_TRACK:
       // Update track state and switch playback if music or combined mode is active (TASK-019, TASK-054).
@@ -3217,6 +3225,7 @@ function handleDataMessage(msg) {
       break;
 
     case MSG.SET_COMBINED_LIGHT: // TASK-054
+      if (!['candle', 'water', 'stars'].includes(msg.value)) return;
       // Change the light effect used in combined mode without stopping audio.
       state.combinedLightEffect = msg.value;
       saveSetting(SETTING_KEYS.DEFAULT_COMBINED_LIGHT, msg.value);
@@ -3237,6 +3246,7 @@ function handleDataMessage(msg) {
       break;
 
     case MSG.SET_FADE_TIMER:
+      if (typeof msg.value !== 'number' || msg.value <= 0 || !isFinite(msg.value) || msg.value > 7200) return;
       // Start the fade-out countdown timer (TASK-019 / TASK-014).
       startFadeTimer(Number(msg.value));
       sendStateSnapshot();
@@ -3261,6 +3271,7 @@ function handleDataMessage(msg) {
       break;
 
     case MSG.SET_QUALITY:
+      if (!['low','medium','high'].includes(msg.value)) return;
       // TASK-028: actually re-apply the new quality constraints to the live stream
       applyQualityConstraints(msg.value);
       break;
@@ -3282,6 +3293,7 @@ function handleDataMessage(msg) {
     case MSG.SPEAK_STOP:
       // Hide the "parent is speaking" indicator (TASK-012).
       _showSpeakThroughIndicator(false);
+      _stopDuckingDetector();
       break;
 
     case MSG.FILE_META: {
@@ -3334,7 +3346,7 @@ function handleDataMessage(msg) {
       // All chunks received — assemble blob and store in IndexedDB (TASK-013)
       const { id } = msg.value ?? {};
       if (!_incomingTransfer || _incomingTransfer.id !== id) break;
-      _finaliseTransfer(); // async; errors are logged internally
+      _finaliseTransfer().catch(e => console.error('[baby] Finalise transfer failed:', e));
       break;
     }
 
@@ -3350,7 +3362,7 @@ function handleDataMessage(msg) {
 
     case MSG.FILE_PLAY:
       // Parent commands the baby to play the received file (TASK-013)
-      _playReceivedFile();
+      _playReceivedFile().catch(e => console.error('[baby] Play received file failed:', e));
       break;
 
     case MSG.FILE_PAUSE:

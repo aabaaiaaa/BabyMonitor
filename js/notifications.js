@@ -16,6 +16,7 @@
  */
 
 import { lsGet, lsSet, SETTING_KEYS } from './storage.js';
+import { escapeHtml } from './utils.js';
 
 // ---------------------------------------------------------------------------
 // Platform detection
@@ -163,7 +164,7 @@ function _buildHtml() {
 <div class="notif-content">
   <div class="notif-content__icon" aria-hidden="true">🔔</div>
   <h2 id="notif-heading" class="notif-content__title">Enable Notifications</h2>
-  <p class="notif-content__desc">${_escapeHtml(explainText)}</p>
+  <p class="notif-content__desc">${escapeHtml(explainText)}</p>
   ${iosNote}
   <div id="notif-enable-area" class="notif-content__actions">
     <button id="notif-enable-btn" class="action-btn notif-content__enable-btn">
@@ -248,15 +249,3 @@ function _closeScreen(screenEl, resolve) {
 // Utilities
 // ---------------------------------------------------------------------------
 
-/**
- * Escape HTML special characters in a string.
- * @param {string} str
- * @returns {string}
- */
-function _escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}

@@ -382,6 +382,7 @@ export function listenForParentDataConn(callbacks, knownBabyIds = []) {
   // Return a cancel function that prevents future invocations of the handler.
   return () => {
     handled = true;
+    peer.removeListener('connection', handler);
   };
 }
 

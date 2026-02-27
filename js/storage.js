@@ -41,8 +41,10 @@ export function lsGet(key, defaultValue = null) {
 export function lsSet(key, value) {
   try {
     localStorage.setItem(LS_PREFIX + key, JSON.stringify(value));
+    return true;
   } catch (e) {
     console.warn('[storage] localStorage write failed:', e);
+    return false;
   }
 }
 
@@ -279,6 +281,8 @@ export async function saveAudioFile(record) {
 
   return new Promise((resolve, reject) => {
     const tx  = db.transaction(STORE_NAME, 'readwrite');
+    tx.onerror  = (e) => reject(e.target.error);
+    tx.onabort  = (e) => reject(tx.error ?? e.target.error);
     const req = tx.objectStore(STORE_NAME).add(full);
     req.onsuccess = () => resolve(id);
     req.onerror   = (e) => reject(e.target.error);
@@ -331,6 +335,8 @@ export async function deleteAudioFile(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx  = db.transaction(STORE_NAME, 'readwrite');
+    tx.onerror  = (e) => reject(e.target.error);
+    tx.onabort  = (e) => reject(tx.error ?? e.target.error);
     const req = tx.objectStore(STORE_NAME).delete(id);
     req.onsuccess = () => resolve();
     req.onerror   = (e) => reject(e.target.error);
@@ -348,6 +354,8 @@ export async function updateAudioFileName(id, newName) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(STORE_NAME, 'readwrite');
+    tx.onerror  = (e) => reject(e.target.error);
+    tx.onabort  = (e) => reject(tx.error ?? e.target.error);
     const store = tx.objectStore(STORE_NAME);
     const getReq = store.get(id);
     getReq.onsuccess = (e) => {

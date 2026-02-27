@@ -47,6 +47,7 @@ import {
   scanSingle, scanMulti, scanAuto, stopScanner,
 } from './qr.js';
 import { showCompatWarnings } from './browser-compat.js';
+import { escapeHtml } from './utils.js';
 import { showNotificationPermissionScreen } from './notifications.js';
 import { maybeShowPwaInstallBanner } from './pwa-install.js';
 import {
@@ -1382,6 +1383,13 @@ function removeMonitor(deviceId) {
   // its next iteration; we also re-enable the file picker / send button here
   // because the async sender loop may not get a chance to do so.
   if (_activeTransfer?.deviceId === deviceId) {
+    // Notify the baby device to clear its incoming-transfer state before we close.
+    try {
+      sendMessage(entry.conn.dataChannel, MSG.FILE_ABORT, {
+        id: _activeTransfer.id,
+        reason: 'Parent disconnected',
+      });
+    } catch { /* ignore — connection closing */ }
     _activeTransfer = null;
     _setTransferUiActive(false);
     _clearTransferUi();
@@ -5211,18 +5219,6 @@ function setMonitorMuted(deviceId, muted) {
 // Utilities
 // ---------------------------------------------------------------------------
 
-/**
- * Escape HTML special characters.
- * @param {string} str
- * @returns {string}
- */
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 // ---------------------------------------------------------------------------
 // Tap-to-begin overlay (TASK-037)
