@@ -195,7 +195,36 @@ test.describe('Audio gate (baby-side mic gating)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 4: Gate settings persist in device profile
+  // Test 4: Gate AudioContext is running (regression for suspended-context bug)
+  // -------------------------------------------------------------------------
+
+  test('gate AudioContext is in running state after gate polling starts', async ({ browser }) => {
+    // Regression test: _startAudioGate() creates a new AudioContext which
+    // starts in 'suspended' state on modern browsers unless .resume() is called.
+    // When suspended, getFloatTimeDomainData() returns all zeros, making the
+    // audio level always 0 — the gate then closes the track immediately
+    // regardless of actual noise, blocking all audio from the baby device.
+    const { baby, cleanup } = await pairDevices(browser);
+    try {
+      // Gate polling loop should be running after connection
+      await baby.page.waitForFunction(
+        () => window.__testGetGateRunning?.() === true,
+        { timeout: 5_000 },
+      );
+
+      // The AudioContext must be 'running', not 'suspended', so that
+      // getFloatTimeDomainData() returns real audio data.
+      const ctxState = await baby.page.evaluate(
+        () => window.__testGetGateAudioCtxState?.() ?? null,
+      );
+      expect(ctxState, 'gate AudioContext must be running — a suspended context returns only zeros, causing the gate to always block audio').toBe('running');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5: Gate settings persist in device profile
   // -------------------------------------------------------------------------
 
   test('audio gate settings are persisted to the device profile in localStorage', async ({ browser }) => {

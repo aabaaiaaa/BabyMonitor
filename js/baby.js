@@ -3134,6 +3134,10 @@ function _startAudioGate() {
   if (!audioTrack) return;
 
   _gateAudioCtx = new AudioContext();
+  // Modern browsers start AudioContext in 'suspended' state when not created
+  // directly inside a user-gesture handler.  Without resuming, getFloatTimeDomainData
+  // always returns zeros → level is always 0 → gate always closes the track.
+  _gateAudioCtx.resume().catch(err => console.warn('[baby] Audio gate context resume failed:', err));
   const source = _gateAudioCtx.createMediaStreamSource(new MediaStream([audioTrack]));
   _gateAnalyser = _gateAudioCtx.createAnalyser();
   _gateAnalyser.fftSize = 256;
@@ -4110,3 +4114,6 @@ window.__testGetAudioTrackEnabled = () => localStream?.getAudioTracks()[0]?.enab
 
 /** Return whether the audio gate polling loop is running. */
 window.__testGetGateRunning = () => _gateIntervalId !== null;
+
+/** Return the state of the gate AudioContext ('running'|'suspended'|'closed'), or null if not created. */
+window.__testGetGateAudioCtxState = () => _gateAudioCtx?.state ?? null;
