@@ -1,5 +1,5 @@
 // @ts-check
-const { defineConfig, devices } = require('@playwright/test');
+import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Playwright configuration for the WebRTC Baby Monitor E2E tests.
@@ -11,13 +11,12 @@ const { defineConfig, devices } = require('@playwright/test');
  *   --use-fake-device-for-media-stream allow tests to obtain camera/mic
  *   streams without real hardware or permission prompts.
  * - baseURL: points to a local static file server started with `npx serve`
- *   (run `npx serve .. -l 3000` from the tests/ directory, or from the
- *   project root with `npx serve . -l 3000`).
+ *   (run `npx serve . -l 3000` from the project root).
  * - timeout: 20 seconds per test to accommodate WebRTC connection
  *   establishment, which can take several seconds on loopback.
  */
-module.exports = defineConfig({
-  testDir: '.',
+export default defineConfig({
+  testDir: './tests',
   testMatch: '**/*.spec.js',
 
   /* Global timeout per test (ms) — generous to allow WebRTC to establish */

@@ -36,6 +36,15 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
+# Playwright / E2E test artefacts
+playwright-report/
+test-results/
+tests/playwright-report/
+tests/test-results/
+
+# Local tool config
+.claude/settings.local.json
+
 # Misc
 *.bak
 *.tmp
