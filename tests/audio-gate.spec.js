@@ -195,7 +195,67 @@ test.describe('Audio gate (baby-side mic gating)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 4: Gate AudioContext is running (regression for suspended-context bug)
+  // Test 4: Gate re-opens after closing (regression for analyser-reads-muted-track bug)
+  // -------------------------------------------------------------------------
+
+  test('gate re-opens outgoing audio track after threshold is lowered below signal level', async ({ browser }) => {
+    // Regression test: _startAudioGate() originally connected the analyser to
+    // the same track it toggles.  When the gate closed the track
+    // (audioTrack.enabled = false), the Web Audio API replaced that track's
+    // output with silence, so getFloatTimeDomainData() returned zeros and the
+    // gate could never re-open regardless of actual noise level.
+    // Fix: use a cloned track for analysis so the analyser always sees live
+    // mic audio independent of the gate's enabled/disabled state.
+    const { baby, parent, deviceId, cleanup } = await pairDevices(browser);
+    try {
+      await parent.page.evaluate((id) => window.__testOpenControlPanel(id), deviceId);
+
+      // Enable gate at threshold=100 — gate closes immediately (level ≤ 100 always).
+      await parent.page.evaluate(() => {
+        const slider = document.getElementById('cp-audio-gate-threshold');
+        if (slider) {
+          slider.value = '100';
+          slider.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const toggle = document.getElementById('cp-audio-gate');
+        if (toggle && !toggle.checked) toggle.click();
+      });
+
+      // Wait for the baby to close the track.
+      await baby.page.waitForFunction(
+        () => window.__testGetAudioTrackEnabled?.() === false,
+        { timeout: 5_000 },
+      );
+
+      // Now lower threshold to 0 — the fake device produces a non-zero signal,
+      // so the gate should re-open once the analyser reads a level above 0.
+      // Without the clone fix the analyser sees only silence (from the disabled
+      // track) and the gate stays permanently closed.
+      await parent.page.evaluate(() => {
+        const slider = document.getElementById('cp-audio-gate-threshold');
+        if (slider) {
+          slider.value = '0';
+          slider.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+
+      // Gate should re-open within two polling cycles + hold reset time.
+      await baby.page.waitForFunction(
+        () => window.__testGetAudioTrackEnabled?.() === true,
+        { timeout: 5_000 },
+      );
+
+      const trackEnabled = await baby.page.evaluate(
+        () => window.__testGetAudioTrackEnabled?.() ?? null,
+      );
+      expect(trackEnabled, 'audio track should be re-enabled when gate re-opens').toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5: Gate AudioContext is running (regression for suspended-context bug)
   // -------------------------------------------------------------------------
 
   test('gate AudioContext is in running state after gate polling starts', async ({ browser }) => {
@@ -224,7 +284,7 @@ test.describe('Audio gate (baby-side mic gating)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 5: Gate settings persist in device profile
+  // Test 6: Gate settings persist in device profile
   // -------------------------------------------------------------------------
 
   test('audio gate settings are persisted to the device profile in localStorage', async ({ browser }) => {

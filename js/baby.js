@@ -327,6 +327,16 @@ let _gateAudioCtx = null;
 let _gateAnalyser = null;
 
 /**
+ * Clone of the mic track used exclusively for level analysis.
+ * The gate toggles audioTrack.enabled on the original track; when enabled=false
+ * the Web Audio API replaces that track's output with silence, which would
+ * starve the analyser and prevent the gate from ever re-opening.  The clone
+ * has its own independent enabled flag and always carries live mic audio.
+ * @type {MediaStreamTrack|null}
+ */
+let _gateAnalysisTrack = null;
+
+/**
  * Timestamp (Date.now()) after which the gate may close if the level remains
  * below threshold.  Updated whenever the level is above threshold so that
  * short pauses between sounds don't produce audible dropouts.
@@ -3138,7 +3148,11 @@ function _startAudioGate() {
   // directly inside a user-gesture handler.  Without resuming, getFloatTimeDomainData
   // always returns zeros → level is always 0 → gate always closes the track.
   _gateAudioCtx.resume().catch(err => console.warn('[baby] Audio gate context resume failed:', err));
-  const source = _gateAudioCtx.createMediaStreamSource(new MediaStream([audioTrack]));
+  // Clone the track so the analyser always receives live mic audio even when
+  // the gate sets audioTrack.enabled=false (a disabled track outputs silence,
+  // which would starve the analyser and permanently lock the gate closed).
+  _gateAnalysisTrack = audioTrack.clone();
+  const source = _gateAudioCtx.createMediaStreamSource(new MediaStream([_gateAnalysisTrack]));
   _gateAnalyser = _gateAudioCtx.createAnalyser();
   _gateAnalyser.fftSize = 256;
   source.connect(_gateAnalyser);
@@ -3193,6 +3207,10 @@ function _stopAudioGate() {
   if (_gateAudioCtx) {
     _gateAudioCtx.close().catch(() => {});
     _gateAudioCtx = null;
+  }
+  if (_gateAnalysisTrack) {
+    _gateAnalysisTrack.stop();
+    _gateAnalysisTrack = null;
   }
   // Always leave the track enabled when the gate is stopped
   const audioTrack = localStream?.getAudioTracks()[0];
