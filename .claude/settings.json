@@ -1,8 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cd:C:\\Users\\jeastaugh\\source\\repos\\Experiments\\0.next-idea)",
-      "Bash(cd:C:\\Users\\jeastaugh\\source\\repos\\Experiments\\0.next-idea/**)",
+      "Bash(cd:C:\\Users\\jeastaugh\\source\\repos\\Experiments\\BabyMonitor)",
+      "Bash(cd:C:\\Users\\jeastaugh\\source\\repos\\Experiments\\BabyMonitor/**)",
       "Bash(npm:*)",
       "Bash(npx:*)",
       "Bash(node:*)",
@@ -28,5 +28,5 @@
     ]
   },
   "restrictToWorkspace": true,
-  "workspacePath": "C:\\Users\\jeastaugh\\source\\repos\\Experiments\\0.next-idea"
+  "workspacePath": "C:\\Users\\jeastaugh\\source\\repos\\Experiments\\BabyMonitor"
 }
