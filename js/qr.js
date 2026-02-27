@@ -72,7 +72,6 @@ export function renderQR(container, text, options = {}) {
   // Clear previous content
   container.innerHTML = '';
 
-  // eslint-disable-next-line no-new
   new QRCode(container, {
     text,
     width:          size,
@@ -163,7 +162,6 @@ export function renderQRGrid(container, payload, options = {}) {
     cell.style.height = `${qrSize}px`;
     container.appendChild(cell);
 
-    // eslint-disable-next-line no-new
     new QRCode(cell, {
       text:         chunk,
       width:        qrSize,

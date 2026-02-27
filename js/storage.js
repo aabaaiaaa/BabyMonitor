@@ -316,7 +316,6 @@ export async function listAudioFiles() {
     const req   = store.getAll();
     req.onsuccess = (e) => {
       const records = e.target.result.map(r => {
-        // eslint-disable-next-line no-unused-vars
         const { blob: _blob, ...meta } = r;
         return meta;
       });

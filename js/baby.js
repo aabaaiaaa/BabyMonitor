@@ -3537,7 +3537,6 @@ function _showTouchLockHint() {
   // Restart the CSS animation by briefly forcing the browser to re-compute style.
   touchLockHint.classList.remove('hidden');
   touchLockHint.style.animation = 'none';
-  // eslint-disable-next-line no-unused-expressions
   touchLockHint.offsetHeight; // trigger reflow
   touchLockHint.style.animation = '';
   _hintHideTimerId = setTimeout(() => {
