@@ -537,6 +537,21 @@
         <p class="settings-hint">A pulsing border and banner appear when noise exceeds this level.</p>
       </section>
 
+      <!-- Audio gate -->
+      <section class="control-group" aria-labelledby="cp-audio-gate-label">
+        <h3 id="cp-audio-gate-label">Audio Gate</h3>
+        <label class="toggle-row">
+          <span>Only transmit audio above threshold</span>
+          <input type="checkbox" id="cp-audio-gate" role="switch" />
+        </label>
+        <label class="settings-field__label" for="cp-audio-gate-threshold">
+          Gate threshold: <output id="cp-audio-gate-threshold-value">20</output>%
+        </label>
+        <input type="range" id="cp-audio-gate-threshold" min="0" max="100" value="20"
+               aria-label="Audio gate threshold" />
+        <p class="settings-hint">When enabled, the baby device mutes its microphone when noise is below this level — saving battery and data.</p>
+      </section>
+
       <!-- Low battery alert threshold (TASK-032) -->
       <section class="control-group" aria-labelledby="cp-battery-threshold-label">
         <h3 id="cp-battery-threshold-label">Low Battery Alert</h3>

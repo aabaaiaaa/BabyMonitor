@@ -826,4 +826,10 @@ export const MSG = {
   // Battery-efficient streaming options (TASK-028) — parent → baby
   SET_SCREEN_DIM:     'setScreenDim',     // value: boolean — dim baby device display
   SET_VIDEO_PAUSED:   'setVideoPaused',   // value: boolean — pause/resume video track
+
+  // Audio gate — parent → baby
+  // value: { enabled: boolean, threshold: number (0-100) }
+  // When enabled, the baby mutes its outgoing audio track below the threshold,
+  // reducing codec CPU usage and radio transmissions.
+  SET_AUDIO_GATE:     'setAudioGate',
 };

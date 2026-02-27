@@ -101,6 +101,8 @@ const state = {
   locked:              false,
   screenDim:           false,  // TASK-028: dimmed display mode
   videoPaused:         false,  // TASK-028: video track paused by parent command
+  audioGateEnabled:    false,  // audio gate: only transmit when above threshold
+  audioGateThreshold:  20,     // 0-100 noise level below which mic is muted
 };
 
 /** @type {MediaStream|null} Local camera/mic stream */
@@ -296,6 +298,40 @@ let _isDucked = false;
  * @type {number}
  */
 let _lastSpeakMs = 0;
+
+// ---------------------------------------------------------------------------
+// Audio gate state
+// ---------------------------------------------------------------------------
+
+/**
+ * setInterval handle for the audio gate polling loop.
+ * @type {number|null}
+ */
+let _gateIntervalId = null;
+
+/**
+ * AudioContext used solely to analyse the outgoing microphone stream for gating.
+ * Separate from the soothing-audio _audioCtx so it can be created/destroyed
+ * independently of the playback graph.
+ * @type {AudioContext|null}
+ */
+let _gateAudioCtx = null;
+
+/**
+ * AnalyserNode connected to the outgoing microphone stream.
+ * @type {AnalyserNode|null}
+ */
+let _gateAnalyser = null;
+
+/**
+ * Timestamp (Date.now()) after which the gate may close if the level remains
+ * below threshold.  Updated whenever the level is above threshold so that
+ * short pauses between sounds don't produce audible dropouts.
+ */
+let _gateOpenUntil = 0;
+
+/** Hold time: keep the track enabled for this many ms after level drops below threshold. */
+const GATE_HOLD_MS = 1500;
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -1652,6 +1688,7 @@ function startMonitor(conn) {
   }
   setupStatusFade();
   _setupSpeakThrough(conn); // TASK-012
+  _startAudioGate(); // start gate polling (no-op until parent sends SET_AUDIO_GATE)
   // TASK-061: Send backup ID pool immediately after data channel is ready so
   // the parent can use it for auto-reconnection (TASK-030) and second-parent
   // access (TASK-058).  Also check replenishment in case the pool has shrunk
@@ -3068,6 +3105,94 @@ function _stopDuckingDetector() {
   console.log('[baby] Ducking detector stopped (TASK-038)');
 }
 
+// ---------------------------------------------------------------------------
+// Audio gate — baby-side outgoing mic gating
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the audio gate polling loop against the outgoing microphone stream.
+ *
+ * Every 100 ms the RMS level of `localStream`'s audio track is sampled.
+ * While the gate is enabled (state.audioGateEnabled):
+ *   - If the level exceeds state.audioGateThreshold the track is enabled and
+ *     the hold timer is extended.
+ *   - If the level has been below threshold for longer than GATE_HOLD_MS the
+ *     track is disabled, stopping the codec from encoding or transmitting.
+ * When the gate is disabled the track is always enabled.
+ *
+ * Uses a dedicated lightweight AudioContext so it is independent of the
+ * soothing-audio playback graph.
+ */
+function _startAudioGate() {
+  if (_gateIntervalId !== null) return; // already running
+  if (!localStream) return;
+
+  const audioTrack = localStream.getAudioTracks()[0];
+  if (!audioTrack) return;
+
+  _gateAudioCtx = new AudioContext();
+  const source = _gateAudioCtx.createMediaStreamSource(new MediaStream([audioTrack]));
+  _gateAnalyser = _gateAudioCtx.createAnalyser();
+  _gateAnalyser.fftSize = 256;
+  source.connect(_gateAnalyser);
+
+  const buffer = new Float32Array(_gateAnalyser.frequencyBinCount);
+
+  _gateIntervalId = setInterval(() => {
+    if (!_gateAnalyser) return;
+
+    _gateAnalyser.getFloatTimeDomainData(buffer);
+    let sum = 0;
+    for (const s of buffer) sum += s * s;
+    const rms  = Math.sqrt(sum / buffer.length);
+    const level = Math.min(100, Math.round(rms * 300)); // same scale as parent noise meter
+
+    if (!state.audioGateEnabled) {
+      // Gate disabled — always pass audio through
+      if (!audioTrack.enabled) audioTrack.enabled = true;
+      return;
+    }
+
+    const now = Date.now();
+    if (level > state.audioGateThreshold) {
+      _gateOpenUntil = now + GATE_HOLD_MS;
+      if (!audioTrack.enabled) {
+        audioTrack.enabled = true;
+        console.log('[baby] Audio gate opened — level:', level);
+      }
+    } else if (now >= _gateOpenUntil) {
+      if (audioTrack.enabled) {
+        audioTrack.enabled = false;
+        console.log('[baby] Audio gate closed — level:', level);
+      }
+    }
+  }, 100);
+
+  console.log('[baby] Audio gate polling started');
+}
+
+/**
+ * Stop the audio gate polling loop and ensure the audio track is re-enabled.
+ */
+function _stopAudioGate() {
+  if (_gateIntervalId !== null) {
+    clearInterval(_gateIntervalId);
+    _gateIntervalId = null;
+  }
+  if (_gateAnalyser) {
+    try { _gateAnalyser.disconnect(); } catch (_) { /* ignore */ }
+    _gateAnalyser = null;
+  }
+  if (_gateAudioCtx) {
+    _gateAudioCtx.close().catch(() => {});
+    _gateAudioCtx = null;
+  }
+  // Always leave the track enabled when the gate is stopped
+  const audioTrack = localStream?.getAudioTracks()[0];
+  if (audioTrack) audioTrack.enabled = true;
+  console.log('[baby] Audio gate polling stopped');
+}
+
 /**
  * Load, decode, and start playing the most recently received audio file.
  * If playback was paused, resumes from the saved offset instead.
@@ -3284,6 +3409,16 @@ function handleDataMessage(msg) {
     case MSG.SET_VIDEO_PAUSED: // TASK-028
       applyVideoPaused(Boolean(msg.value));
       break;
+
+    case MSG.SET_AUDIO_GATE: {
+      const { enabled, threshold } = msg.value ?? {};
+      state.audioGateEnabled  = Boolean(enabled);
+      state.audioGateThreshold = typeof threshold === 'number' ? threshold : state.audioGateThreshold;
+      // Start the gate loop if it isn't already running (idempotent)
+      _startAudioGate();
+      console.log('[baby] Audio gate updated — enabled:', state.audioGateEnabled, 'threshold:', state.audioGateThreshold);
+      break;
+    }
 
     case MSG.SPEAK_START:
       // Show the "parent is speaking" indicator (TASK-012).
@@ -3600,6 +3735,9 @@ function handleDisconnect(reason) {
 
   // Stop the speak-through ducking detector and restore gain (TASK-038).
   _stopDuckingDetector();
+
+  // Stop audio gate polling and re-enable the track (baby-side gating).
+  _stopAudioGate();
 
   // TASK-040: release orientation lock when leaving monitor mode so the OS
   // can control rotation freely on the disconnected / pairing screens.

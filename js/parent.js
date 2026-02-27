@@ -77,6 +77,8 @@ const MAX_MONITORS = 4;
  * @property {AnalyserNode}    analyserNode    — TASK-024 hookup: noise visualiser
  * @property {number}          desiredGain     — TASK-011: last user-set gain (0–1); preserved across mute
  * @property {number}          noiseThreshold
+ * @property {boolean}         audioGateEnabled  — mute baby mic below threshold
+ * @property {number}          audioGateThreshold — 0–100 level below which baby mutes
  * @property {number}          motionThreshold  — TASK-026: movement detection sensitivity (0–100)
  * @property {number|null}     motionTimerId    — TASK-026: setInterval ID for motion detection loop
  * @property {ImageData|null}  motionPrevFrame  — TASK-026: previous video frame pixel data for diff
@@ -303,6 +305,9 @@ const cpFlipCamera        = document.getElementById('cp-flip-camera');
 const cpAudioOnly         = document.getElementById('cp-audio-only');
 const cpNoiseThreshold      = document.getElementById('cp-noise-threshold');
 const cpNoiseThresholdValue = document.getElementById('cp-noise-threshold-value'); // TASK-024
+const cpAudioGate           = document.getElementById('cp-audio-gate');
+const cpAudioGateThreshold  = document.getElementById('cp-audio-gate-threshold');
+const cpAudioGateThresholdValue = document.getElementById('cp-audio-gate-threshold-value');
 const cpMotionThreshold   = document.getElementById('cp-motion-threshold'); // TASK-026
 // Snooze controls (TASK-027) — event delegation wired via cp-snooze-group / cp-snooze-all-group
 const cpSnoozeGroup       = document.getElementById('cp-snooze-group');
@@ -1229,12 +1234,14 @@ function addMonitor(conn) {
 
   // Load or create device profile (TASK-023)
   const profile = getDeviceProfile(deviceId) ?? {
-    id:               deviceId,
-    label:            `Baby ${monitors.size + 1}`,
-    noiseThreshold:   60,
-    motionThreshold:  50,
-    batteryThreshold: 15,
-    backupPoolJson:   null,
+    id:                deviceId,
+    label:             `Baby ${monitors.size + 1}`,
+    noiseThreshold:    60,
+    audioGateEnabled:  false,
+    audioGateThreshold: 20,
+    motionThreshold:   50,
+    batteryThreshold:  15,
+    backupPoolJson:    null,
   };
   saveDeviceProfile(profile);
 
@@ -1320,8 +1327,10 @@ function addMonitor(conn) {
     gainNode,
     analyserNode:     analyser,
     desiredGain:      initialGain, // preserved across mute/unmute (TASK-050)
-    noiseThreshold:   profile.noiseThreshold,
-    motionThreshold:  profile.motionThreshold ?? 50, // TASK-026: motion sensitivity
+    noiseThreshold:    profile.noiseThreshold,
+    audioGateEnabled:  profile.audioGateEnabled  ?? false,
+    audioGateThreshold: profile.audioGateThreshold ?? 20,
+    motionThreshold:   profile.motionThreshold ?? 50, // TASK-026: motion sensitivity
     motionTimerId:    null,  // TASK-026: setInterval ID; cleared on disconnect
     motionPrevFrame:  null,  // TASK-026: previous frame ImageData for differencing
     audioMuted:       false,
@@ -1340,6 +1349,14 @@ function addMonitor(conn) {
   monitors.set(deviceId, entry);
   monitorGrid?.setAttribute('data-count', String(monitors.size));
   refreshGridEmpty();
+
+  // Send audio gate settings so the baby applies them from the moment it connects.
+  if (entry.conn?.dataChannel) {
+    sendMessage(entry.conn.dataChannel, MSG.SET_AUDIO_GATE, {
+      enabled:   entry.audioGateEnabled,
+      threshold: entry.audioGateThreshold,
+    });
+  }
 
   // Start noise visualiser (TASK-024)
   startNoiseVisualiser(entry);
@@ -2390,6 +2407,11 @@ function openControlPanel(deviceId) {
   if (cpNoiseThreshold) cpNoiseThreshold.value = String(entry.noiseThreshold);
   if (cpNoiseThresholdValue) cpNoiseThresholdValue.value = String(entry.noiseThreshold);
 
+  // Populate audio gate controls
+  if (cpAudioGate) cpAudioGate.checked = entry.audioGateEnabled;
+  if (cpAudioGateThreshold) cpAudioGateThreshold.value = String(entry.audioGateThreshold);
+  if (cpAudioGateThresholdValue) cpAudioGateThresholdValue.value = String(entry.audioGateThreshold);
+
   // Populate motion threshold from profile (TASK-026)
   if (cpMotionThreshold) cpMotionThreshold.value = String(entry.motionThreshold);
 
@@ -3174,6 +3196,43 @@ cpNoiseThreshold?.addEventListener('change', () => {
     entry.noiseThreshold = Number(cpNoiseThreshold.value);
     const profile = getDeviceProfile(controlPanelDeviceId);
     if (profile) saveDeviceProfile({ ...profile, noiseThreshold: entry.noiseThreshold });
+  }
+});
+
+// Audio gate — toggle enabled/disabled
+cpAudioGate?.addEventListener('change', () => {
+  if (!controlPanelDeviceId) return;
+  const entry = monitors.get(controlPanelDeviceId);
+  if (!entry) return;
+  entry.audioGateEnabled = cpAudioGate.checked;
+  const profile = getDeviceProfile(controlPanelDeviceId);
+  if (profile) saveDeviceProfile({ ...profile, audioGateEnabled: entry.audioGateEnabled });
+  if (entry.conn?.dataChannel) {
+    sendMessage(entry.conn.dataChannel, MSG.SET_AUDIO_GATE, {
+      enabled:   entry.audioGateEnabled,
+      threshold: entry.audioGateThreshold,
+    });
+  }
+});
+
+// Audio gate — live threshold label update
+cpAudioGateThreshold?.addEventListener('input', () => {
+  if (cpAudioGateThresholdValue) cpAudioGateThresholdValue.value = cpAudioGateThreshold.value;
+});
+
+// Audio gate — persist threshold and send to baby on release
+cpAudioGateThreshold?.addEventListener('change', () => {
+  if (!controlPanelDeviceId) return;
+  const entry = monitors.get(controlPanelDeviceId);
+  if (!entry) return;
+  entry.audioGateThreshold = Number(cpAudioGateThreshold.value);
+  const profile = getDeviceProfile(controlPanelDeviceId);
+  if (profile) saveDeviceProfile({ ...profile, audioGateThreshold: entry.audioGateThreshold });
+  if (entry.conn?.dataChannel) {
+    sendMessage(entry.conn.dataChannel, MSG.SET_AUDIO_GATE, {
+      enabled:   entry.audioGateEnabled,
+      threshold: entry.audioGateThreshold,
+    });
   }
 });
 
