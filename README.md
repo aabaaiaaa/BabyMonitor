@@ -55,6 +55,12 @@ Set how sensitive the sound alert is from the parent dashboard.
 
 ---
 
+## Saving battery with the audio gate
+
+You can mute the baby device's microphone automatically when the room is quiet. Enable this from the device control panel on the parent dashboard — set a threshold and the mic mutes below it, then unmutes when noise returns. This reduces battery and data use when nothing is happening.
+
+---
+
 ## Speaking to your baby
 
 Tap the microphone button on the parent screen to speak through the baby device's speaker. Audio from your room is muted while you speak so there's no feedback.
