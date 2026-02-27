@@ -2202,3 +2202,122 @@ textarea {
     gap: var(--space-md);
   }
 }
+
+/* --------------------------------------------------------------------------
+   Home screen (index.html — mode selection)
+   -------------------------------------------------------------------------- */
+.home-screen {
+  background: var(--color-bg);
+}
+
+.home {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100dvh;
+  padding: 0 var(--space-md) max(var(--space-lg), env(safe-area-inset-bottom));
+}
+
+.home__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(var(--space-md), env(safe-area-inset-top)) 0 var(--space-md);
+}
+
+.home__title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.home__footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.home__footer-sep {
+  color: var(--color-border);
+}
+
+/* --------------------------------------------------------------------------
+   Mode selection cards (index.html)
+   -------------------------------------------------------------------------- */
+.mode-select {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-lg) 0;
+}
+
+.mode-select__heading {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
+  color: var(--color-text);
+}
+
+.mode-select__intro {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.mode-select__cards {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  text-align: left;
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--color-border);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+              transform var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+  width: 100%;
+}
+
+.mode-card:hover,
+.mode-card:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.mode-card:active {
+  transform: scale(0.99);
+}
+
+.mode-card--secondary {
+  border-style: dashed;
+  background: var(--color-bg);
+}
+
+.mode-card__icon {
+  font-size: 2rem;
+  display: block;
+}
+
+.mode-card__label {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.mode-card__desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
