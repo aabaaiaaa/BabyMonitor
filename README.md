@@ -49,9 +49,10 @@ Soothing modes keep running even if your phone briefly loses connection — the 
 The app can notify you when:
 
 - **Sound in the room** goes above a level you choose.
-- **The baby device battery** is running low (below 20%).
+- **Movement is detected** — a 🚶 indicator appears on the panel and an audible beep plays.
+- **The baby device battery** is running low.
 
-Set how sensitive the sound alert is from the parent dashboard.
+Set the sensitivity for each alert from the device control panel on the parent dashboard. Movement alerts can be snoozed per device or for all devices at once.
 
 ---
 
@@ -71,7 +72,7 @@ Tap the microphone button on the parent screen to speak through the baby device'
 
 Need a second person to monitor — a partner, grandparent, or nanny? You can add their device without touching the baby device again.
 
-From the parent dashboard, tap **Share Access**, show the QR code on screen, and have them scan it on their device.
+Open the parent dashboard, go to **Settings → Share with Another Parent**, and tap **Show sharing QR code**. Have the second person tap **Connect to Existing Parent** on their device and scan the code.
 
 ---
 
@@ -126,7 +127,7 @@ Tap the lock icon in the Chrome address bar → set Camera and Microphone to All
 Make sure both are on the same Wi-Fi network (not one on Wi-Fi and one on mobile data). Try closing and reopening the app on both devices, then pair again. If Quick Pair keeps failing, try **Offline QR** — it works without any internet connection.
 
 **No audio on the baby device.**
-Make sure you tapped the "Tap to begin" screen on the baby device. Check the volume is not muted. If the problem persists, reload the page and try again.
+Make sure you tapped the "Tap to begin" screen on the baby device. Check the volume is not muted. If the audio gate is enabled (in the device control panel), the mic mutes automatically when the room is quiet — try lowering the gate threshold or disabling it. If the problem persists, reload the page and try again.
 
 **A banner says a new version is available.**
 Tap **Update** — the page reloads with the latest version. This happens automatically when the app is improved.
