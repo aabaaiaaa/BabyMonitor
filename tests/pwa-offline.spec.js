@@ -661,6 +661,13 @@ self.addEventListener('message', (event) => {
       const bannerText = await page.textContent('#sw-update-banner');
       expect(bannerText).toMatch(/new version|update/i);
 
+      // The banner must also include the app version read from the meta tag.
+      const metaVersion = await page.evaluate(
+        () => document.querySelector('meta[name="app-version"]')?.content ?? '',
+      );
+      expect(metaVersion, 'app-version meta tag should be present').toBeTruthy();
+      expect(bannerText, `banner should contain version "${metaVersion}"`).toContain(metaVersion);
+
       // ── Assertion 2: Update and dismiss buttons are present ─────────────────
       // The #tap-overlay dialog is full-screen and sits above the banner in the
       // stacking context; use { visible: true } element checks (DOM-visible, not

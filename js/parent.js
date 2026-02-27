@@ -5512,3 +5512,14 @@ window.__testLastHandoffSent = null;
  * @type {object|null}
  */
 window.__testLastHandoffPayload = null;
+
+/**
+ * Return the audio gate settings for the given deviceId as stored in the
+ * MonitorEntry, or null if no monitor exists for that device.
+ * @param {string} deviceId
+ * @returns {{ enabled: boolean, threshold: number }|null}
+ */
+window.__testGetMonitorGateSettings = (deviceId) => {
+  const entry = monitors.get(deviceId);
+  return entry ? { enabled: entry.audioGateEnabled, threshold: entry.audioGateThreshold } : null;
+};

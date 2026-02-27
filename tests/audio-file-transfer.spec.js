@@ -320,7 +320,37 @@ test.describe('Audio file transfer (TASK-068)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 4: Mid-transfer interruption — data channel closed, UI clears cleanly
+  // Test 4 (loop fix): Voice recording AudioBufferSourceNode has loop enabled
+  // -------------------------------------------------------------------------
+
+  test('transferred file plays on loop — AudioBufferSourceNode.loop is true', async ({ browser }) => {
+    const { baby, parent, deviceId, cleanup } = await pairDevices(browser);
+    try {
+      await startTransfer(parent.page, deviceId, SMALL_WAV, 'loop-test.wav');
+
+      await baby.page.waitForFunction(
+        () => window.__testGetReceivedFileId() !== null,
+        { timeout: 15_000 },
+      );
+
+      await baby.page.evaluate(() => window.__testPlayReceivedFile());
+
+      await baby.page.waitForFunction(
+        () => window.__testIsFileAudioPlaying?.() === true,
+        { timeout: 5_000 },
+      );
+
+      const loop = await baby.page.evaluate(
+        () => window.__testGetAudioSourceLoop?.() ?? null,
+      );
+      expect(loop, 'AudioBufferSourceNode.loop should be true so the recording repeats').toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5: Mid-transfer interruption — data channel closed, UI clears cleanly
   // -------------------------------------------------------------------------
 
   test('closing the data channel mid-transfer clears the parent UI without unhandled errors', async ({ browser }) => {

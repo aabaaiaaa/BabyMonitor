@@ -4085,3 +4085,18 @@ window.__testIsFileAudioPlaying = () => _audioPlaying;
  */
 window.__testIsTransferProgressVisible = () =>
   babyTransferStatus != null && !babyTransferStatus.classList.contains('hidden');
+
+/** Return the loop property of the current AudioBufferSourceNode (null if none). */
+window.__testGetAudioSourceLoop = () => _audioSource?.loop ?? null;
+
+/** Return whether the audio gate is currently enabled in state. */
+window.__testGetAudioGateEnabled = () => state.audioGateEnabled;
+
+/** Return the current audio gate threshold (0-100). */
+window.__testGetAudioGateThreshold = () => state.audioGateThreshold;
+
+/** Return whether the outgoing audio track is currently enabled (null if no stream). */
+window.__testGetAudioTrackEnabled = () => localStream?.getAudioTracks()[0]?.enabled ?? null;
+
+/** Return whether the audio gate polling loop is running. */
+window.__testGetGateRunning = () => _gateIntervalId !== null;
