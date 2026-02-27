@@ -202,6 +202,9 @@ let _audioBuffer = null;
 /** @type {AudioBufferSourceNode|null} The active playback source node (null if stopped). */
 let _audioSource = null;
 
+/** @type {boolean} Whether the most recently started source node had loop=true set. */
+let _audioSourceLoop = false;
+
 /** @type {boolean} True while audio is actively playing (not paused or stopped). */
 let _audioPlaying = false;
 
@@ -3244,6 +3247,7 @@ function _createAndStartSource(offset) {
   _audioSource = _audioCtx.createBufferSource();
   _audioSource.buffer = _audioBuffer;
   _audioSource.loop = true;
+  _audioSourceLoop = true;
   _audioSource.connect(_audioGain);
   _audioSource.start(0, offset);
   _audioStart   = _audioCtx.currentTime - offset;
@@ -3251,7 +3255,11 @@ function _createAndStartSource(offset) {
   _audioOffset  = 0;
 
   _audioSource.addEventListener('ended', () => {
-    // Natural end of audio (not a manual stop)
+    // Natural end of audio (not a manual stop).
+    // _audioSourceLoop is intentionally NOT reset here: it reflects the loop
+    // configuration set at creation time and is only cleared by an explicit
+    // stop or pause.  In headless Chrome, 'ended' can fire spuriously for
+    // short looping buffers — resetting the flag here would give a false negative.
     if (_audioPlaying) {
       _audioSource  = null;
       _audioPlaying = false;
@@ -3267,8 +3275,9 @@ function _createAndStartSource(offset) {
 function _pausePlayback() {
   if (!_audioPlaying || !_audioSource || !_audioCtx) return;
   // Record how far through the buffer we were
-  _audioOffset  = _audioCtx.currentTime - _audioStart;
-  _audioPlaying = false;
+  _audioOffset     = _audioCtx.currentTime - _audioStart;
+  _audioPlaying    = false;
+  _audioSourceLoop = false;
   try { _audioSource.stop(); } catch (_) { /* ignore */ }
   _audioSource = null;
 }
@@ -3289,7 +3298,8 @@ function _resumePlayback() {
  */
 function _stopPlayback() {
   if (_audioSource) {
-    _audioPlaying = false;
+    _audioPlaying    = false;
+    _audioSourceLoop = false;
     try { _audioSource.stop(); } catch (_) { /* ignore */ }
     _audioSource = null;
   }
@@ -4086,8 +4096,8 @@ window.__testIsFileAudioPlaying = () => _audioPlaying;
 window.__testIsTransferProgressVisible = () =>
   babyTransferStatus != null && !babyTransferStatus.classList.contains('hidden');
 
-/** Return the loop property of the current AudioBufferSourceNode (null if none). */
-window.__testGetAudioSourceLoop = () => _audioSource?.loop ?? null;
+/** Return whether the most recently started source node had loop=true set. */
+window.__testGetAudioSourceLoop = () => _audioSourceLoop;
 
 /** Return whether the audio gate is currently enabled in state. */
 window.__testGetAudioGateEnabled = () => state.audioGateEnabled;

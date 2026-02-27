@@ -214,11 +214,14 @@ test.describe('Audio gate (baby-side mic gating)', () => {
         if (toggle && !toggle.checked) toggle.click();
       });
 
-      // Read the device profile from localStorage
+      // Read the device profile from localStorage.
+      // Profiles are stored as a JSON array under 'bm:paireddevices'; find the
+      // one matching this device ID.
       const profile = await parent.page.evaluate((id) => {
-        const key = `bm:profile:${id}`;
-        const raw = localStorage.getItem(key);
-        return raw ? JSON.parse(raw) : null;
+        const raw = localStorage.getItem('bm:paireddevices');
+        if (!raw) return null;
+        const profiles = JSON.parse(raw);
+        return profiles.find((p) => p.id === id) ?? null;
       }, deviceId);
 
       expect(profile, 'device profile should exist in localStorage').not.toBeNull();
