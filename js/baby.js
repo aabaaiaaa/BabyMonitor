@@ -3118,6 +3118,7 @@ function _createAndStartSource(offset) {
 
   _audioSource = _audioCtx.createBufferSource();
   _audioSource.buffer = _audioBuffer;
+  _audioSource.loop = true;
   _audioSource.connect(_audioGain);
   _audioSource.start(0, offset);
   _audioStart   = _audioCtx.currentTime - offset;
