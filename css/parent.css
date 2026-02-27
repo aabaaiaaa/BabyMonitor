@@ -466,6 +466,20 @@
   /* left is set dynamically via JS as `${threshold}%` */
 }
 
+/* Audio gate threshold marker — blue vertical line, visible only when gate is enabled */
+.noise-gate-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-primary);
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 0;
+  transition: opacity 200ms ease, left 100ms linear;
+  /* left and opacity are set dynamically via JS */
+}
+
 .noise-bar {
   height: 100%;
   width: 0%;

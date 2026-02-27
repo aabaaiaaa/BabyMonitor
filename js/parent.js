@@ -2042,6 +2042,7 @@ function createMonitorPanel(deviceId, label, conn) {
       <div class="noise-bar-wrap" title="Noise level" aria-label="Noise level">
         <div class="noise-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
         <div class="noise-threshold-marker" aria-hidden="true"></div>
+        <div class="noise-gate-marker" aria-hidden="true"></div>
       </div>
       <span class="motion-indicator" title="Movement detected" aria-label="Movement detected" aria-hidden="true"
             data-level="0">🚶</span>
@@ -2120,6 +2121,19 @@ function _updateNoiseThresholdMarker(entry) {
 }
 
 /**
+ * Position the gate threshold marker on a monitor panel's noise bar and
+ * show or hide it depending on whether the audio gate is enabled.
+ * @param {MonitorEntry} entry
+ */
+function _updateGateThresholdMarker(entry) {
+  const marker = entry.panelEl?.querySelector('.noise-gate-marker');
+  if (marker) {
+    marker.style.left    = `${entry.audioGateThreshold}%`;
+    marker.style.opacity = entry.audioGateEnabled ? '1' : '0';
+  }
+}
+
+/**
  * Start a noise level visualiser for a monitor entry.
  * @param {MonitorEntry} entry
  */
@@ -2128,8 +2142,9 @@ function startNoiseVisualiser(entry) {
   const noiseBar = panel?.querySelector('.noise-bar');
   if (!noiseBar || !entry.analyserNode) return;
 
-  // Set initial threshold marker position (TASK-024)
+  // Set initial threshold marker positions
   _updateNoiseThresholdMarker(entry);
+  _updateGateThresholdMarker(entry);
 
   const bufferLength = entry.analyserNode.frequencyBinCount;
   const dataArray    = new Uint8Array(bufferLength);
@@ -2411,6 +2426,7 @@ function openControlPanel(deviceId) {
   if (cpAudioGate) cpAudioGate.checked = entry.audioGateEnabled;
   if (cpAudioGateThreshold) cpAudioGateThreshold.value = String(entry.audioGateThreshold);
   if (cpAudioGateThresholdValue) cpAudioGateThresholdValue.value = String(entry.audioGateThreshold);
+  _updateGateThresholdMarker(entry);
 
   // Populate motion threshold from profile (TASK-026)
   if (cpMotionThreshold) cpMotionThreshold.value = String(entry.motionThreshold);
@@ -3205,6 +3221,7 @@ cpAudioGate?.addEventListener('change', () => {
   const entry = monitors.get(controlPanelDeviceId);
   if (!entry) return;
   entry.audioGateEnabled = cpAudioGate.checked;
+  _updateGateThresholdMarker(entry);
   const profile = getDeviceProfile(controlPanelDeviceId);
   if (profile) saveDeviceProfile({ ...profile, audioGateEnabled: entry.audioGateEnabled });
   if (entry.conn?.dataChannel) {
@@ -3215,9 +3232,15 @@ cpAudioGate?.addEventListener('change', () => {
   }
 });
 
-// Audio gate — live threshold label update
+// Audio gate — live threshold label update and marker reposition
 cpAudioGateThreshold?.addEventListener('input', () => {
   if (cpAudioGateThresholdValue) cpAudioGateThresholdValue.value = cpAudioGateThreshold.value;
+  if (!controlPanelDeviceId) return;
+  const entry = monitors.get(controlPanelDeviceId);
+  if (entry) {
+    entry.audioGateThreshold = Number(cpAudioGateThreshold.value);
+    _updateGateThresholdMarker(entry);
+  }
 });
 
 // Audio gate — persist threshold and send to baby on release
